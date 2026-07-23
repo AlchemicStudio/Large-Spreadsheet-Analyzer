@@ -1,0 +1,62 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            artifact: lsa-windows
+          - os: macos-latest
+            artifact: lsa-macos
+          - os: ubuntu-latest
+            artifact: lsa-linux
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Python
+        run: uv python install 3.12
+      - name: Install dependencies (with PyInstaller)
+        run: uv sync --group build
+      - name: Build executables
+        # --collect-all customtkinter happens inside the spec (theme assets).
+        run: uv run pyinstaller packaging/lsa.spec --noconfirm
+      - name: Package (Windows)
+        if: runner.os == 'Windows'
+        run: Compress-Archive -Path dist/lsa/* -DestinationPath "${{ matrix.artifact }}.zip"
+        shell: pwsh
+      - name: Package (Unix)
+        if: runner.os != 'Windows'
+        # tar preserves the executable bits that upload-artifact would drop.
+        run: tar -C dist -czf "${{ matrix.artifact }}.tar.gz" lsa
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: |
+            lsa-*.zip
+            lsa-*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v5
+        with:
+          path: dist
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

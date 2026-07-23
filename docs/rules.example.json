@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "settings": { "trim": true, "case_sensitive": true, "empty_tokens": [""] },
+  "rules": [
+    {
+      "id": "missing-email",
+      "label": "Row has a name but no e-mail",
+      "match": "all",
+      "conditions": [
+        { "type": "not_empty", "column": { "by": "header", "value": "name" } },
+        { "type": "is_empty", "column": { "by": "header", "value": "email" } }
+      ]
+    },
+    {
+      "id": "billing-equals-shipping",
+      "label": "Billing address equals shipping address",
+      "match": "any",
+      "conditions": [
+        {
+          "type": "equals_column",
+          "column": { "by": "letter", "value": "D" },
+          "other_column": { "by": "letter", "value": "H" }
+        }
+      ]
+    }
+  ]
+}
