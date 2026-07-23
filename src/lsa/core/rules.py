@@ -47,7 +47,11 @@ class RuleValidationError(ValueError):
 
 @dataclass(frozen=True, slots=True)
 class Settings:
-    """Comparison semantics, adjustable per rules file."""
+    """Comparison semantics, adjustable per rules file.
+
+    ``empty_tokens`` always contains ``""`` — a truly blank cell is always
+    considered empty; the tokens add extra values (``NA``, ``-``...).
+    """
 
     trim: bool = True
     case_sensitive: bool = True
@@ -168,6 +172,10 @@ def _parse_settings(data: Any, errors: list[str]) -> Settings:
     ):
         errors.append(f"settings.empty_tokens: must be a list of strings, got {empty_tokens!r}")
         empty_tokens = [""]
+    elif "" not in empty_tokens:
+        # A blank cell must always count as empty; without this, an edited
+        # rules file with e.g. ["NA"] would make is_empty skip blank cells.
+        empty_tokens = ["", *empty_tokens]
     unknown = set(data) - {"trim", "case_sensitive", "empty_tokens"}
     if unknown:
         errors.append(f"settings: unknown key(s) {sorted(unknown)}")

@@ -141,6 +141,27 @@ def test_xlsx_run(make_xlsx, rules_file, capsys) -> None:
     assert "no-email: 1 match(es)" in capsys.readouterr().out
 
 
+def test_bad_encoding_exits_2_not_1(make_csv, rules_file, capsys) -> None:
+    data = make_csv("name,email\nAna,\n")
+    assert _run("--header", "--encoding", "uft-8", file=data, rules=rules_file) == 2
+    err = capsys.readouterr().err
+    assert "error:" in err
+    assert "Traceback" not in err
+
+
+def test_unwritable_report_exits_2(make_csv, rules_file, tmp_path, capsys) -> None:
+    data = make_csv("name,email\nAna,\n")
+    report = tmp_path / "no" / "such" / "dir" / "report.json"
+    assert _run("--header", "--report", str(report), file=data, rules=rules_file) == 2
+    assert "error:" in capsys.readouterr().err
+
+
+def test_bare_cr_csv_still_scans(make_csv, rules_file, capsys) -> None:
+    data = make_csv("name,email\nAna,\nBo,ok@x.y\rstray\nCy,\n")
+    assert _run("--header", file=data, rules=rules_file) == 1
+    assert "no-email:" in capsys.readouterr().out
+
+
 def test_validate_rules_ok(rules_file, capsys) -> None:
     assert main(["validate-rules", str(rules_file)]) == 0
     assert "OK: 1 rule(s)" in capsys.readouterr().out

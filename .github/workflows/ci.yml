@@ -12,6 +12,11 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.11", "3.12"]
+    env:
+      # Overrides the .python-version pin for EVERY uv command in the job;
+      # a bare `uv run` would otherwise re-sync the venv back to the pinned
+      # interpreter and the matrix would silently always test 3.12.
+      UV_PYTHON: ${{ matrix.python-version }}
     steps:
       - uses: actions/checkout@v5
       - uses: astral-sh/setup-uv@v5
@@ -20,7 +25,7 @@ jobs:
       - name: Install Python ${{ matrix.python-version }}
         run: uv python install ${{ matrix.python-version }}
       - name: Install dependencies
-        run: uv sync --python ${{ matrix.python-version }}
+        run: uv sync
       - name: Lint
         run: uv run ruff check
       - name: Test

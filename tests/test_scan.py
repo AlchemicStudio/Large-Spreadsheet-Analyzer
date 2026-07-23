@@ -67,7 +67,9 @@ def test_scan_xlsx_caches_cells(make_xlsx, tmp_path) -> None:
         match = store.get_page("no-email", 0, 10)[0]
         assert match.row_number == 2
         assert match.byte_offset is None
-        assert match.cells == ["Ana", ""]
+        # openpyxl yields ragged rows (trailing empties omitted); consumers
+        # pad to the header width at display/export time.
+        assert match.cells == ["Ana"]
 
 
 def test_progress_callback_and_final_snapshot(make_csv, tmp_path) -> None:
@@ -89,6 +91,22 @@ def test_progress_callback_and_final_snapshot(make_csv, tmp_path) -> None:
     assert final.counts["no-email"] == 50
     assert final.fraction == 1.0
     assert all(s.fraction is not None for s in snapshots)
+
+
+def test_workbook_progress_reaches_one(make_xlsx, tmp_path) -> None:
+    # total_rows counts data rows (header excluded), so the final fraction
+    # must be exactly 1.0 - not (N-1)/N.
+    path = make_xlsx({"Data": [["name", "email"], *[["a", ""]] * 5]})
+    stream = OpenpyxlRowStream(path)
+    snapshots: list[ScanProgress] = []
+    with ResultStore(tmp_path / "r.sqlite3") as store:
+        try:
+            run_scan(stream, RULESET, store, progress_callback=snapshots.append)
+        finally:
+            stream.close()
+    assert snapshots[-1].rows_processed == 5
+    assert snapshots[-1].total_rows == 5
+    assert snapshots[-1].fraction == 1.0
 
 
 def test_cancel_keeps_partial_results(make_csv, tmp_path) -> None:

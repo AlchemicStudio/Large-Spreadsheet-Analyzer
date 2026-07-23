@@ -78,5 +78,7 @@
   "report.export.report": "Bericht speichern (JSON)",
   "report.export.done": "Exportiert nach {path}",
   "error.title": "Fehler",
-  "ok": "OK"
+  "ok": "OK",
+  "match.all.short": "UND",
+  "match.any.short": "ODER"
 }

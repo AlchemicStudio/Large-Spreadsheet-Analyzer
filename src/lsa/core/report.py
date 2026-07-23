@@ -210,7 +210,10 @@ def export_rule_matches(
         writer = csv.writer(f)
         writer.writerow(["row_number", *columns])
         for match in store.iter_matches(rule_id):
-            writer.writerow([match.row_number, *source.cells_for(match)])
+            cells = source.cells_for(match)
+            if len(cells) < width:  # pad ragged rows; never truncate wide ones
+                cells = list(cells) + [""] * (width - len(cells))
+            writer.writerow([match.row_number, *cells])
             written += 1
     return written
 
@@ -228,8 +231,15 @@ def export_all_matches(
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     files: dict[str, Path] = {}
+    used_names: set[str] = set()
     for rule in ruleset.rules:
-        path = out / f"{safe_filename(rule.id)}.csv"
+        base = safe_filename(rule.id)
+        name, suffix = base, 2
+        while name in used_names:  # distinct ids can sanitize to the same file name
+            name = f"{base}-{suffix}"
+            suffix += 1
+        used_names.add(name)
+        path = out / f"{name}.csv"
         export_rule_matches(store, rule.id, source, path, header=header, width=width)
         files[rule.id] = path
     return files

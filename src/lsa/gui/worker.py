@@ -7,6 +7,7 @@ polls :meth:`ScanController.drain` from an ``after()`` loop.
 
 from __future__ import annotations
 
+import contextlib
 import queue
 import threading
 from pathlib import Path
@@ -38,6 +39,7 @@ class ScanController:
         self.header: list[str] | None = None
         self.width = 0
         self.sheet_name: str | None = None
+        self._config: tuple | None = None
 
     @property
     def running(self) -> bool:
@@ -56,6 +58,8 @@ class ScanController:
         if self.running:
             raise RuntimeError("a scan is already running")
         self.discard_results()
+        self.drain()  # drop stale messages from any previous (orphaned) scan
+        self._config = self._config_key(path, ruleset, csv_options, sheet, has_header)
         self._cancel.clear()
         self._thread = threading.Thread(
             target=self._work,
@@ -88,6 +92,37 @@ class ScanController:
             self.store.close()
             self.store = None
         self.summary = None
+        self._config = None
+
+    @staticmethod
+    def _config_key(
+        path: Path,
+        ruleset: RuleSet,
+        csv_options: CsvOptions | None,
+        sheet: str | None,
+        has_header: bool,
+    ) -> tuple:
+        return (str(path), sheet, has_header, csv_options, ruleset)
+
+    def results_valid_for(
+        self,
+        *,
+        path: Path,
+        ruleset: RuleSet,
+        csv_options: CsvOptions | None,
+        sheet: str | None,
+        has_header: bool,
+    ) -> bool:
+        """Whether the stored results were produced by exactly this configuration.
+
+        Prevents a report built for file A / rules A from being shown after
+        the user went Back and changed the file or the rules.
+        """
+        return (
+            self.summary is not None
+            and self.store is not None
+            and self._config == self._config_key(path, ruleset, csv_options, sheet, has_header)
+        )
 
     def _work(
         self,
@@ -98,15 +133,11 @@ class ScanController:
         has_header: bool,
     ) -> None:
         store = ResultStore()
+        stream = None
         try:
             stream = open_stream(
                 path, csv_options=csv_options, sheet=sheet, has_header=has_header
             )
-        except Exception as exc:
-            store.close()
-            self.queue.put(ScanMessage("error", str(exc)))
-            return
-        try:
             summary = run_scan(
                 stream,
                 ruleset,
@@ -118,12 +149,16 @@ class ScanController:
             self.header = stream.header
             self.width = stream.width
             self.sheet_name = getattr(stream, "sheet_name", None)
-        except Exception as exc:
+            self.store = store
+            self.summary = summary
+            self.queue.put(ScanMessage("done", summary))
+        except BaseException as exc:
+            # BaseException: python-calamine's Rust panics (pyo3
+            # PanicException) bypass `except Exception`; a dead worker that
+            # never posts a message would hang the GUI in "running" forever.
             store.close()
-            self.queue.put(ScanMessage("error", str(exc)))
-            return
+            self.queue.put(ScanMessage("error", str(exc) or repr(exc)))
         finally:
-            stream.close()
-        self.store = store
-        self.summary = summary
-        self.queue.put(ScanMessage("done", summary))
+            if stream is not None:
+                with contextlib.suppress(Exception):
+                    stream.close()

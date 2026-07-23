@@ -211,7 +211,7 @@ class CsvImportDialog(ctk.CTkToplevel):
         self.transient(app)
         # grab_set right away can fail before the window is mapped (CTk re-applies
         # attributes shortly after creation) - delay it.
-        self.after(150, self._grab)
+        self._grab_job: str | None = self.after(150, self._grab)
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(3, weight=1)
 
@@ -339,6 +339,16 @@ class CsvImportDialog(ctk.CTkToplevel):
         self.on_applied()
         self.destroy()
 
+    def destroy(self) -> None:
+        # Cancel pending after() jobs so they don't fire on a dead window.
+        for job_attr in ("_preview_job", "_grab_job"):
+            job = getattr(self, job_attr, None)
+            if job is not None:
+                with contextlib.suppress(Exception):
+                    self.after_cancel(job)
+                setattr(self, job_attr, None)
+        super().destroy()
+
 
 # ------------------------------------------------------------------ step 3: rules
 
@@ -436,12 +446,15 @@ class RulesStep(StepFrame):
         )
         entry.grid(row=0, column=1, sticky="ew", padx=(0, 10))
 
-        match_var = ctk.StringVar(value=draft.match)
+        match_labels = {"all": self.tr("match.all.short"), "any": self.tr("match.any.short")}
+        match_var = ctk.StringVar(value=match_labels[draft.match])
         match_menu = ctk.CTkSegmentedButton(
             header,
-            values=["all", "any"],
+            values=list(match_labels.values()),
             variable=match_var,
-            command=lambda value, d=draft: setattr(d, "match", value),
+            command=lambda label, d=draft, m=match_labels: setattr(
+                d, "match", {v: k for k, v in m.items()}[label]
+            ),
         )
         match_menu.grid(row=0, column=2, padx=(0, 10))
         ctk.CTkButton(
@@ -615,24 +628,42 @@ class RunStep(StepFrame):
             self.counter_labels[rule.id] = counter
 
         self._poll_job: str | None = None
-        if self.controller.summary is not None:
+        if not self.controller.running and self.controller.results_valid_for(
+            **self._scan_config()
+        ):
             self._show_summary_state()
+
+    def _scan_config(self) -> dict:
+        wizard = self.app.wizard
+        return {
+            "path": wizard.file,
+            "ruleset": self.app.ruleset,
+            "csv_options": wizard.csv_options,
+            "sheet": wizard.sheet,
+            "has_header": wizard.has_header,
+        }
+
+    def on_show(self) -> None:
+        # The frame may be rebuilt while a scan is running (e.g. a language
+        # switch): reattach to the worker instead of orphaning it.
+        if self.controller.running:
+            self.start_button.configure(state="disabled")
+            self.cancel_button.configure(state="normal")
+            self.app.set_nav_enabled(False)
+            self.status.configure(text=self.tr("run.running"))
+            self._poll()
 
     def _start(self) -> None:
         app = self.app
-        wizard = app.wizard
         self.start_button.configure(state="disabled")
         self.cancel_button.configure(state="normal")
         app.set_nav_enabled(False)
         self.status.configure(text=self.tr("run.running"))
+        self.progress.set(0)
+        for label in self.counter_labels.values():
+            label.configure(text=self.tr("run.matches", count=0))
         try:
-            self.controller.start(
-                path=wizard.file,
-                ruleset=app.ruleset,
-                csv_options=wizard.csv_options,
-                sheet=wizard.sheet,
-                has_header=wizard.has_header,
-            )
+            self.controller.start(**self._scan_config())
         except RuntimeError as exc:
             self.status.configure(text=self.tr("run.error", error=str(exc)))
             return
@@ -711,7 +742,9 @@ class RunStep(StepFrame):
         _show_error(self.app, self.tr("run.error", error=error))
 
     def on_next(self) -> bool:
-        return self.controller.summary is not None and self.controller.store is not None
+        # Results must exist AND belong to the current file/rules/options —
+        # never show a report produced by an earlier configuration.
+        return self.controller.results_valid_for(**self._scan_config())
 
     def destroy(self) -> None:
         if self._poll_job is not None:

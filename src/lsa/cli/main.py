@@ -228,6 +228,13 @@ def main(argv: list[str] | None = None) -> int:
     except KeyboardInterrupt:
         print("interrupted", file=sys.stderr)
         return EXIT_ERROR
+    except SystemExit:
+        raise
+    except BaseException as exc:
+        # Any failure must exit 2, never leak a traceback with exit 1 (the
+        # "matches found" code).  BaseException because python-calamine's
+        # Rust panics (pyo3 PanicException) do not subclass Exception.
+        return _error(str(exc) or repr(exc))
 
 
 if __name__ == "__main__":

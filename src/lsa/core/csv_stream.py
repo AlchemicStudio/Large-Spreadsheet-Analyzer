@@ -14,6 +14,7 @@ import csv
 import io
 import os
 import sys
+from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
 from pathlib import Path
@@ -58,6 +59,16 @@ def detect_csv_options(path: str | Path, *, sample_bytes: int = _DETECT_SAMPLE_B
             encoding = codecs.lookup(best.encoding).name
         if head.startswith(codecs.BOM_UTF8):
             encoding = "utf-8-sig"
+        elif encoding == "utf-16" and not head.startswith(
+            (codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)
+        ):
+            # Bare "utf-16" decodes as little-endian when no BOM is present,
+            # which turns BOM-less big-endian files into silent garbage.
+            # ASCII-heavy UTF-16 text has NUL high bytes: LE puts them at odd
+            # offsets, BE at even offsets.
+            even_nuls = head[0::2].count(0)
+            odd_nuls = head[1::2].count(0)
+            encoding = "utf-16-be" if even_nuls > odd_nuls else "utf-16-le"
 
     sample = head.decode(encoding, errors="replace")
     separator, quotechar, has_header = ",", '"', True
@@ -94,24 +105,43 @@ class _OffsetLineIterator:
     ``next_offset`` is always the byte offset of the next line that will be
     yielded — sampled by the caller *before* pulling a CSV record, it is the
     offset of that record's first byte.
+
+    A bare ``\\r`` inside a physical line terminates a logical line, exactly
+    as ``open(..., newline="")`` would split it.  Without this, one stray CR
+    (a mangled CRLF, text pasted from an old Mac app) would make csv.reader
+    raise ``_csv.Error`` and abort the whole scan, while the text-mode
+    fallback path would happily parse the same bytes.
     """
 
-    __slots__ = ("_encoding", "_file", "next_offset")
+    __slots__ = ("_encoding", "_file", "_segments", "next_offset")
 
     def __init__(self, file: BinaryIO, encoding: str):
         self._file = file
         self._encoding = encoding
+        self._segments: deque[bytes] = deque()
         self.next_offset = file.tell()
 
     def __iter__(self) -> _OffsetLineIterator:
         return self
 
     def __next__(self) -> str:
-        line = self._file.readline()
-        if not line:
-            raise StopIteration
-        self.next_offset += len(line)
-        return line.decode(self._encoding, errors="replace")
+        if not self._segments:
+            line = self._file.readline()
+            if not line:
+                raise StopIteration
+            self._split_on_bare_cr(line)
+        segment = self._segments.popleft()
+        self.next_offset += len(segment)
+        return segment.decode(self._encoding, errors="replace")
+
+    def _split_on_bare_cr(self, line: bytes) -> None:
+        while line:
+            index = line.find(b"\r")
+            if index == -1 or line[index : index + 2] == b"\r\n":
+                self._segments.append(line)
+                return
+            self._segments.append(line[: index + 1])
+            line = line[index + 1 :]
 
 
 def _make_reader(source: Iterator[str], options: CsvOptions) -> Iterator[list[str]]:
@@ -217,7 +247,12 @@ class CsvRowFetcher:
         self._file: BinaryIO = open(path, "rb")  # noqa: SIM115 - fetcher owns the handle
 
     def fetch(self, offset: int) -> list[str]:
-        """Re-read the single row starting at ``offset``."""
+        """Re-read the single row starting at ``offset``.
+
+        ``offset`` must be a record-start offset produced by
+        :class:`CsvRowStream` (stored in the result store); arbitrary offsets
+        would silently parse from mid-record.
+        """
         self._file.seek(offset)
         lines = _OffsetLineIterator(self._file, self._options.encoding)
         reader = _make_reader(lines, self._options)

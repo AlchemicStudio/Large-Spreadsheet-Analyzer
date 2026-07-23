@@ -293,6 +293,59 @@ def test_scan_controller_end_to_end(make_csv) -> None:
         controller.discard_results()
 
 
+def test_scan_controller_results_valid_for_detects_config_change(make_csv) -> None:
+    controller, state = _scan_controller(make_csv)
+    ruleset = build_ruleset(state.rule_drafts, state.settings)
+    config = {
+        "path": state.file,
+        "ruleset": ruleset,
+        "csv_options": state.csv_options,
+        "sheet": None,
+        "has_header": True,
+    }
+    controller.start(**config)
+    controller.join(timeout=10)
+    controller.drain()
+    try:
+        assert controller.results_valid_for(**config)
+        # equal-by-value config (rebuilt ruleset) still matches
+        assert controller.results_valid_for(
+            **{**config, "ruleset": build_ruleset(state.rule_drafts, state.settings)}
+        )
+        # a changed file or rules invalidates the stored results
+        assert not controller.results_valid_for(**{**config, "path": state.file.parent / "b.csv"})
+        other_rules = build_ruleset([_draft_rule()], Settings(empty_tokens=("", "NA")))
+        assert not controller.results_valid_for(**{**config, "ruleset": other_rules})
+    finally:
+        controller.discard_results()
+    assert not controller.results_valid_for(**config)  # discarded
+
+
+def test_scan_controller_survives_base_exception(monkeypatch, tmp_path) -> None:
+    # python-calamine panics are BaseException; the worker must still post an
+    # error message instead of dying silently and hanging the GUI.
+    class FakePanic(BaseException):
+        pass
+
+    def explode(*_args, **_kwargs):
+        raise FakePanic("rust panic")
+
+    monkeypatch.setattr("lsa.gui.worker.open_stream", explode)
+    controller = ScanController()
+    controller.start(
+        path=tmp_path / "x.csv",
+        ruleset=build_ruleset([_draft_rule()], Settings()),
+        csv_options=None,
+        sheet=None,
+        has_header=True,
+    )
+    controller.join(timeout=10)
+    messages = controller.drain()
+    assert messages[-1].kind == "error"
+    assert "rust panic" in str(messages[-1].payload)
+    assert controller.store is None
+
+
 def test_scan_controller_reports_errors(tmp_path) -> None:
     controller = ScanController()
     ruleset = build_ruleset([_draft_rule()], Settings())

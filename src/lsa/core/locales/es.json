@@ -78,5 +78,7 @@
   "report.export.report": "Guardar informe (JSON)",
   "report.export.done": "Exportado a {path}",
   "error.title": "Error",
-  "ok": "Aceptar"
+  "ok": "Aceptar",
+  "match.all.short": "Y",
+  "match.any.short": "O"
 }

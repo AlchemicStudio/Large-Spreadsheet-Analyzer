@@ -206,6 +206,13 @@ def test_column_letter_normalized_to_upper() -> None:
     assert ruleset_from_dict(doc).rules[0].conditions[0].column == ColumnRef("letter", "AA")
 
 
+def test_blank_token_always_included() -> None:
+    doc = dict(VALID, settings={"empty_tokens": ["NA"]})
+    assert ruleset_from_dict(doc).settings.empty_tokens == ("", "NA")
+    doc = dict(VALID, settings={"empty_tokens": []})
+    assert ruleset_from_dict(doc).settings.empty_tokens == ("",)
+
+
 def test_bad_settings_reported() -> None:
     doc = {
         "version": 1,

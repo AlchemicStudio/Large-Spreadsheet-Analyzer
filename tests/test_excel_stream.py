@@ -27,6 +27,11 @@ EXPECTED_TEXT = [
 ]
 
 
+def _padded(cells: list[str], width: int) -> list[str]:
+    """openpyxl read-only yields ragged rows once dimensions are recalculated."""
+    return list(cells) + [""] * (width - len(cells))
+
+
 @pytest.mark.parametrize("stream_cls", [OpenpyxlRowStream, CalamineRowStream])
 def test_typed_cells_become_text(make_xlsx, stream_cls) -> None:
     path = make_xlsx({"Data": TYPED_ROWS})
@@ -39,7 +44,7 @@ def test_typed_cells_become_text(make_xlsx, stream_cls) -> None:
     finally:
         stream.close()
     assert [r.number for r in rows] == [2, 3, 4]
-    assert [r.cells for r in rows] == EXPECTED_TEXT
+    assert [_padded(r.cells, 4) for r in rows] == EXPECTED_TEXT
     assert all(r.offset is None for r in rows)
 
 
@@ -114,14 +119,59 @@ def test_trailing_empty_rows_suppressed(make_xlsx) -> None:
         stream.close()
 
 
-def test_total_rows_estimate(make_xlsx) -> None:
+def test_total_rows_estimate_excludes_header(make_xlsx) -> None:
     path = make_xlsx({"Data": [["h"], ["a"], ["b"]]})
     for stream_cls in (OpenpyxlRowStream, CalamineRowStream):
         stream = stream_cls(path)
         try:
-            assert stream.total_rows == 3
+            assert stream.total_rows == 2  # data rows only, for progress math
         finally:
             stream.close()
+        headerless = stream_cls(path, has_header=False)
+        try:
+            assert headerless.total_rows == 3
+        finally:
+            headerless.close()
+
+
+@pytest.mark.parametrize("stream_cls", [OpenpyxlRowStream, CalamineRowStream])
+def test_empty_sheet_yields_nothing(make_xlsx, stream_cls) -> None:
+    # calamine 0.8 panics (PanicException!) if iter_rows() is called on a
+    # sheet without a used range - the stream must never do that.
+    path = make_xlsx({"Empty": []})
+    stream = stream_cls(path)
+    try:
+        assert stream.width == 0
+        assert stream.header is None
+        assert list(stream.rows()) == []
+    finally:
+        stream.close()
+
+
+def test_lying_dimension_does_not_truncate(make_xlsx, tmp_path) -> None:
+    # Streaming XLSX writers often emit <dimension ref="A1"/> regardless of
+    # content; in read-only mode openpyxl would bound iteration by it and
+    # silently scan nothing.
+    import re
+    import zipfile
+
+    src = make_xlsx({"Data": [["name", "email"], ["Ana", "a"], ["Bo", "b"]]})
+    lied = tmp_path / "lied.xlsx"
+    with zipfile.ZipFile(src) as zin, zipfile.ZipFile(lied, "w") as zout:
+        for item in zin.infolist():
+            data = zin.read(item.filename)
+            if item.filename == "xl/worksheets/sheet1.xml":
+                patched = re.sub(rb"<dimension ref=\"[^\"]*\"", b'<dimension ref="A1"', data)
+                assert patched != data, "fixture did not contain a dimension element"
+                data = patched
+            zout.writestr(item, data)
+
+    stream = OpenpyxlRowStream(lied)
+    try:
+        assert stream.header == ["name", "email"]
+        assert [_padded(r.cells, 2) for r in stream.rows()] == [["Ana", "a"], ["Bo", "b"]]
+    finally:
+        stream.close()
 
 
 def test_open_stream_dispatches_xlsx(make_xlsx) -> None:

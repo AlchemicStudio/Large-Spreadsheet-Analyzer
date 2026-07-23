@@ -93,6 +93,36 @@ def test_utf16_falls_back_to_text_mode(make_csv) -> None:
     assert all(r.offset is None for r in rows)
 
 
+def test_bare_cr_inside_line_splits_like_text_mode(make_csv) -> None:
+    # A stray bare CR (mangled CRLF, old-Mac paste) must not abort the scan:
+    # the offsets path has to parse exactly like open(..., newline="") would.
+    path = make_csv("name,notes\nalice,ok\nbob,bad\rvalue\ncarol,fine\n")
+    options = CsvOptions()
+    with CsvRowStream(path, options) as stream:
+        assert stream.supports_offsets is True
+        rows = list(stream.rows())
+    assert [r.cells for r in rows] == [
+        ["alice", "ok"],
+        ["bob", "bad"],
+        ["value"],
+        ["carol", "fine"],
+    ]
+    assert [r.number for r in rows] == [2, 3, 4, 5]
+    with CsvRowFetcher(path, options) as fetcher:
+        for row in rows:
+            assert fetcher.fetch(row.offset) == row.cells
+
+
+def test_utf16_be_without_bom_decodes_correctly(make_csv) -> None:
+    # BOM-less UTF-16-BE must not silently decode as LE garbage.
+    raw = ("name,email\nAna,a@b.c\nBo,b@c.d\n" * 5).encode("utf-16-be")
+    path = make_csv(raw)
+    options = replace(detect_csv_options(path), has_header=True)
+    with CsvRowStream(path, options) as stream:
+        assert stream.header == ["name", "email"]
+        assert next(iter(stream.rows())).cells == ["Ana", "a@b.c"]
+
+
 def test_cr_only_line_endings_fall_back(make_csv) -> None:
     path = make_csv("name,email\rAna,a@b.c\rBo,b@c.d\r")
     with CsvRowStream(path, CsvOptions()) as stream:

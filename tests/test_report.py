@@ -164,6 +164,31 @@ def test_export_all_matches(make_csv, tmp_path) -> None:
     assert empty == ["row_number,name,email"]
 
 
+def test_export_all_dedupes_colliding_filenames(make_csv, tmp_path) -> None:
+    # Distinct rule ids can sanitize to the same file name; neither export
+    # may silently overwrite the other.
+    condition = Condition("is_empty", ColumnRef("header", "email"))
+    ruleset = RuleSet(
+        rules=(
+            Rule(id="no email", label="a", match="all", conditions=(condition,)),
+            Rule(id="no_email", label="b", match="all", conditions=(condition,)),
+        )
+    )
+    path = make_csv(CSV_TEXT)
+    with (
+        CsvRowStream(path, CsvOptions()) as stream,
+        ResultStore(tmp_path / "r3.sqlite3") as store,
+    ):
+        run_scan(stream, ruleset, store)
+        with MatchRowSource(path, CsvOptions()) as source:
+            files = export_all_matches(
+                store, ruleset, source, tmp_path / "dup", header=stream.header, width=stream.width
+            )
+    assert files["no email"].name == "no_email.csv"
+    assert files["no_email"].name == "no_email-2.csv"
+    assert files["no email"].exists() and files["no_email"].exists()
+
+
 def test_safe_filename() -> None:
     assert safe_filename("no-email") == "no-email"
     assert safe_filename("weird/rule: 1") == "weird_rule_1"

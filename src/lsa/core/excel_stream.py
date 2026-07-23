@@ -68,6 +68,13 @@ class _ExcelStreamBase:
             self.width = len(first)
             self._pending = Row(1, first, None)
 
+    def _set_total_rows(self, physical_rows: int | None) -> None:
+        """Store the *data*-row estimate (header excluded) for progress."""
+        if physical_rows is None:
+            self.total_rows = None
+        else:
+            self.total_rows = max(0, physical_rows - (1 if self._has_header else 0))
+
     def _numbered(self, raw_rows: Iterator[list[str]]) -> Iterator[Row]:
         number = 2 if self._has_header else 1
         if self._pending is not None:
@@ -105,11 +112,17 @@ class CalamineRowStream(_ExcelStreamBase):
         # references keep their absolute meaning.
         start = ws.start
         self._col_pad = [""] * (start[1] if start is not None else 0)
-        self.total_rows = (start[0] if start is not None else 0) + ws.height
-        self._rows_iter: Iterator[list[object]] = iter(ws.iter_rows())
+        if start is None:
+            # Empty sheet: calamine 0.8's iter_rows() panics (a PanicException
+            # that no `except Exception` can catch) when there is no used
+            # range — never call it in that case.
+            self._rows_iter: Iterator[list[object]] = iter(())
+        else:
+            self._rows_iter = iter(ws.iter_rows())
         first_raw = next(self._rows_iter, None)
         first = None if first_raw is None else self._to_text(first_raw)
         self._init_layout(first, has_header)
+        self._set_total_rows((start[0] if start is not None else 0) + ws.height)
 
     def _to_text(self, raw: list[object]) -> list[str]:
         return self._col_pad + [cell_to_text(v) for v in raw]
@@ -131,14 +144,18 @@ class OpenpyxlRowStream(_ExcelStreamBase):
             name = _pick_sheet(sheet, self._wb.sheetnames)
             ws = self._wb[name]
             self.sheet_name = name
-            if ws.max_row is None or ws.max_column is None:
-                # Broken/absent dimension metadata: recalculate while streaming.
-                ws.reset_dimensions()
-            self.total_rows = ws.max_row  # estimate only; may be None or stale
+            physical_estimate = ws.max_row  # progress estimate only
+            # In read-only mode the stated <dimension> BOUNDS iteration: a
+            # writer that lies (the classic `<dimension ref="A1"/>` from
+            # streaming generators, or a stale range) would silently truncate
+            # rows and columns.  Always recalculate from the actual cells and
+            # keep the stated value only as a progress estimate.
+            ws.reset_dimensions()
             self._rows_iter: Iterator[tuple[object, ...]] = ws.iter_rows(values_only=True)
             first_raw = next(self._rows_iter, None)
             first = None if first_raw is None else [cell_to_text(v) for v in first_raw]
             self._init_layout(first, has_header)
+            self._set_total_rows(physical_estimate)
         except BaseException:
             self._wb.close()
             raise
