@@ -135,9 +135,7 @@ class ScanController:
         store = ResultStore()
         stream = None
         try:
-            stream = open_stream(
-                path, csv_options=csv_options, sheet=sheet, has_header=has_header
-            )
+            stream = open_stream(path, csv_options=csv_options, sheet=sheet, has_header=has_header)
             summary = run_scan(
                 stream,
                 ruleset,

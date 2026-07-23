@@ -43,6 +43,7 @@ PREVIEW_ROW_COUNT = 20
 
 # --------------------------------------------------------------------------- rules drafts
 
+
 @dataclass
 class ConditionDraft:
     """Mutable editing model of one condition (values as raw strings)."""
@@ -139,6 +140,7 @@ def ruleset_to_drafts(ruleset: RuleSet) -> list[RuleDraft]:
 
 
 # --------------------------------------------------------------------------- wizard state
+
 
 @dataclass
 class WizardState:
@@ -395,9 +397,7 @@ class ReportPresenter:
         self._tr = tr
         self.sample_size = sample_size
         self._source = MatchRowSource(file, csv_options)
-        self._pagers = {
-            rule.id: MatchPager(store, rule.id, sample_size) for rule in ruleset.rules
-        }
+        self._pagers = {rule.id: MatchPager(store, rule.id, sample_size) for rule in ruleset.rules}
 
     @property
     def partial(self) -> bool:

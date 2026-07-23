@@ -8,8 +8,7 @@ from lsa.core.store import ResultStore, StoredMatch
 
 def _fill(store: ResultStore) -> None:
     store.add_matches(
-        [("r1", n, n * 10, None) for n in range(1, 11)]
-        + [("r2", 5, None, json.dumps(["a", "b"]))]
+        [("r1", n, n * 10, None) for n in range(1, 11)] + [("r2", 5, None, json.dumps(["a", "b"]))]
     )
     store.flush()
 

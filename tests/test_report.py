@@ -115,9 +115,7 @@ def test_export_rule_matches_with_header(make_csv, tmp_path) -> None:
     path, store, _, header, width = _scan(make_csv, tmp_path)
     out = tmp_path / "no-email.csv"
     with store, MatchRowSource(path, CsvOptions()) as source:
-        written = export_rule_matches(
-            store, "no-email", source, out, header=header, width=width
-        )
+        written = export_rule_matches(store, "no-email", source, out, header=header, width=width)
     assert written == 4
     with open(out, encoding="utf-8", newline="") as f:
         rows = list(csv.reader(f))
@@ -155,9 +153,7 @@ def test_export_all_matches(make_csv, tmp_path) -> None:
     path, store, _, header, width = _scan(make_csv, tmp_path)
     out_dir = tmp_path / "exports"
     with store, MatchRowSource(path, CsvOptions()) as source:
-        files = export_all_matches(
-            store, RULESET, source, out_dir, header=header, width=width
-        )
+        files = export_all_matches(store, RULESET, source, out_dir, header=header, width=width)
     assert set(files) == {"no-email", "never-matches"}
     assert files["no-email"].name == "no-email.csv"
     empty = files["never-matches"].read_text(encoding="utf-8").strip().splitlines()

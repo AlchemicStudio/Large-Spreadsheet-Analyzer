@@ -161,9 +161,7 @@ def _run(args: argparse.Namespace) -> int:
     try:
         with ResultStore() as store:
             try:
-                summary = run_scan(
-                    stream, ruleset, store, progress_callback=progress_callback
-                )
+                summary = run_scan(stream, ruleset, store, progress_callback=progress_callback)
             except ColumnResolutionError as exc:
                 return _error(str(exc))
             finally:
@@ -172,8 +170,7 @@ def _run(args: argparse.Namespace) -> int:
             sheet = getattr(stream, "sheet_name", None)
             partial = " (partial)" if summary.cancelled else ""
             print(
-                f"Scanned {summary.rows_scanned:,} rows "
-                f"in {summary.elapsed_seconds:.1f}s{partial}"
+                f"Scanned {summary.rows_scanned:,} rows in {summary.elapsed_seconds:.1f}s{partial}"
             )
             for rule in ruleset.rules:
                 count = summary.counts.get(rule.id, 0)

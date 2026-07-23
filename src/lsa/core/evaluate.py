@@ -21,9 +21,7 @@ class CompiledRules:
 
     def evaluate(self, cells: Sequence[str]) -> list[str]:
         """Return the ids of all rules matching this row (cells as text)."""
-        return [
-            rid for rid, ev in zip(self.rule_ids, self._evaluators, strict=True) if ev(cells)
-        ]
+        return [rid for rid, ev in zip(self.rule_ids, self._evaluators, strict=True) if ev(cells)]
 
 
 def compile_rules(ruleset: RuleSet, header: list[str] | None, width: int) -> CompiledRules:

@@ -122,9 +122,7 @@ class App(ctk.CTk):
             + f" - {self.tr(title_key)}"
         )
         if not keep_nav_state:
-            self.back_button.configure(
-                state="normal" if self.step_index > 0 else "disabled"
-            )
+            self.back_button.configure(state="normal" if self.step_index > 0 else "disabled")
             self.next_button.configure(
                 state="normal" if self.step_index < len(_STEPS) - 1 else "disabled"
             )

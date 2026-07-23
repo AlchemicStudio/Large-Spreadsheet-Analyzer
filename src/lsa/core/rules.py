@@ -133,7 +133,7 @@ def _parse_ref(data: Any, where: str, errors: list[str]) -> ColumnRef | None:
         return None
     if by == "letter":
         if not isinstance(value, str):
-            errors.append(f"{where}: a letter reference needs a string value like \"C\"")
+            errors.append(f'{where}: a letter reference needs a string value like "C"')
             return None
         try:
             letter_to_index(value)
@@ -167,9 +167,7 @@ def _parse_settings(data: Any, errors: list[str]) -> Settings:
     if not isinstance(case_sensitive, bool):
         errors.append(f"settings.case_sensitive: must be true or false, got {case_sensitive!r}")
         case_sensitive = True
-    if not isinstance(empty_tokens, list) or not all(
-        isinstance(t, str) for t in empty_tokens
-    ):
+    if not isinstance(empty_tokens, list) or not all(isinstance(t, str) for t in empty_tokens):
         errors.append(f"settings.empty_tokens: must be a list of strings, got {empty_tokens!r}")
         empty_tokens = [""]
     elif "" not in empty_tokens:

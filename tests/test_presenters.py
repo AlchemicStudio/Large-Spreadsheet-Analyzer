@@ -39,6 +39,7 @@ def _draft_rule() -> RuleDraft:
 
 # ----------------------------------------------------------------- file step
 
+
 def test_select_csv_file_prefills_options(make_csv) -> None:
     state = WizardState()
     presenter = FileStepPresenter(state, TR)
@@ -80,6 +81,7 @@ def test_format_size() -> None:
 
 # ----------------------------------------------------------------- import step
 
+
 def _csv_state(make_csv, text: str = "name,email\nAna,\nBo,b@c.d\n") -> WizardState:
     state = WizardState()
     path = make_csv(text)
@@ -108,9 +110,7 @@ def test_apply_csv_options_rejects_bad_input(make_csv) -> None:
     state = _csv_state(make_csv)
     presenter = ImportPresenter(state, TR)
     common = {"quotechar": '"', "has_header": True, "empty_tokens_text": ""}
-    assert "separator" in presenter.apply_csv_options(
-        separator="||", encoding="utf-8", **common
-    )
+    assert "separator" in presenter.apply_csv_options(separator="||", encoding="utf-8", **common)
     assert "encoding" in presenter.apply_csv_options(
         separator=",", encoding="not-a-codec", **common
     )
@@ -147,6 +147,7 @@ def test_sheet_and_header_setters(make_xlsx) -> None:
 
 
 # ----------------------------------------------------------------- rules step
+
 
 def test_rule_draft_crud() -> None:
     state = WizardState()
@@ -233,6 +234,7 @@ def test_rules_load_reports_errors(tmp_path) -> None:
 
 
 # ----------------------------------------------------------------- worker + report
+
 
 def _scan_controller(make_csv) -> tuple[ScanController, WizardState]:
     state = WizardState()

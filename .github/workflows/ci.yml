@@ -27,7 +27,7 @@ jobs:
       - name: Install dependencies
         run: uv sync
       - name: Lint
-        run: uv run ruff check
+        run: uv run ruff check && uv run ruff format --check
       - name: Test
         # GUI-marked tests need a display and are excluded by the default addopts.
         run: uv run pytest -q

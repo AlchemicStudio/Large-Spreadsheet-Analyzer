@@ -65,9 +65,7 @@ class ResultStore:
         self._conn.execute("DELETE FROM matches")
         self._conn.commit()
 
-    def add_matches(
-        self, batch: Iterable[tuple[str, int, int | None, str | None]]
-    ) -> None:
+    def add_matches(self, batch: Iterable[tuple[str, int, int | None, str | None]]) -> None:
         """Insert ``(rule_id, row_number, byte_offset, cells_json)`` tuples."""
         self._conn.executemany(
             "INSERT OR REPLACE INTO matches (rule_id, row_number, byte_offset, cells) "

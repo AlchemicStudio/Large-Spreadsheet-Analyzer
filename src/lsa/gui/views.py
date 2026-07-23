@@ -70,6 +70,7 @@ class StepFrame(ctk.CTkFrame):
 
 # ------------------------------------------------------------------ step 1: file
 
+
 class FileStep(StepFrame):
     help_key = "step.file.help"
 
@@ -132,6 +133,7 @@ class FileStep(StepFrame):
 
 
 # ------------------------------------------------------------------ step 2: import options
+
 
 class ImportStep(StepFrame):
     help_key = "step.import.help"
@@ -273,9 +275,7 @@ class CsvImportDialog(ctk.CTkToplevel):
         )
         ctk.CTkEntry(tokens_row, textvariable=self.tokens_var).grid(row=0, column=1, sticky="ew")
 
-        self.preview_label = ctk.CTkLabel(
-            self, text=self.tr("csv.preview", count=20), anchor="w"
-        )
+        self.preview_label = ctk.CTkLabel(self, text=self.tr("csv.preview", count=20), anchor="w")
         self.preview_label.grid(row=2, column=0, sticky="w", **_PAD)
         self.table = Table(self, height=12)
         self.table.grid(row=3, column=0, sticky="nsew", **_PAD)
@@ -284,9 +284,9 @@ class CsvImportDialog(ctk.CTkToplevel):
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")
         buttons.grid(row=5, column=0, sticky="e", **_PAD)
-        ctk.CTkButton(
-            buttons, text=self.tr("csv.cancel"), width=110, command=self.destroy
-        ).grid(row=0, column=0, padx=(0, 8))
+        ctk.CTkButton(buttons, text=self.tr("csv.cancel"), width=110, command=self.destroy).grid(
+            row=0, column=0, padx=(0, 8)
+        )
         ctk.CTkButton(buttons, text=self.tr("csv.apply"), width=110, command=self._apply).grid(
             row=0, column=1
         )
@@ -352,6 +352,7 @@ class CsvImportDialog(ctk.CTkToplevel):
 
 # ------------------------------------------------------------------ step 3: rules
 
+
 class RulesStep(StepFrame):
     help_key = "step.rules.help"
 
@@ -368,9 +369,7 @@ class RulesStep(StepFrame):
         ctk.CTkButton(toolbar, text=self.tr("rules.load"), command=self._load).grid(
             row=0, column=1, padx=(0, 8)
         )
-        ctk.CTkButton(toolbar, text=self.tr("rules.save"), command=self._save).grid(
-            row=0, column=2
-        )
+        ctk.CTkButton(toolbar, text=self.tr("rules.save"), command=self._save).grid(row=0, column=2)
 
         self.rules_frame = ctk.CTkScrollableFrame(self, fg_color="transparent")
         self.rules_frame.grid(row=2, column=0, sticky="nsew", **_PAD)
@@ -379,9 +378,7 @@ class RulesStep(StepFrame):
         settings = ctk.CTkFrame(self, fg_color="transparent")
         settings.grid(row=3, column=0, sticky="ew", **_PAD)
         settings.grid_columnconfigure(3, weight=1)
-        ctk.CTkLabel(settings, text=self.tr("settings.title")).grid(
-            row=0, column=0, padx=(0, 12)
-        )
+        ctk.CTkLabel(settings, text=self.tr("settings.title")).grid(row=0, column=0, padx=(0, 12))
         self.trim_var = ctk.BooleanVar(value=app.wizard.settings.trim)
         ctk.CTkCheckBox(
             settings,
@@ -588,6 +585,7 @@ class RulesStep(StepFrame):
 
 # ------------------------------------------------------------------ step 4: run
 
+
 class RunStep(StepFrame):
     help_key = "step.run.help"
 
@@ -606,9 +604,7 @@ class RunStep(StepFrame):
 
         buttons = ctk.CTkFrame(self, fg_color="transparent")
         buttons.grid(row=3, column=0, sticky="w", **_PAD)
-        self.start_button = ctk.CTkButton(
-            buttons, text=self.tr("run.start"), command=self._start
-        )
+        self.start_button = ctk.CTkButton(buttons, text=self.tr("run.start"), command=self._start)
         self.start_button.grid(row=0, column=0, padx=(0, 8))
         self.cancel_button = ctk.CTkButton(
             buttons, text=self.tr("run.cancel"), command=self._cancel, state="disabled"
@@ -628,9 +624,7 @@ class RunStep(StepFrame):
             self.counter_labels[rule.id] = counter
 
         self._poll_job: str | None = None
-        if not self.controller.running and self.controller.results_valid_for(
-            **self._scan_config()
-        ):
+        if not self.controller.running and self.controller.results_valid_for(**self._scan_config()):
             self._show_summary_state()
 
     def _scan_config(self) -> dict:
@@ -698,9 +692,7 @@ class RunStep(StepFrame):
                 self.progress.stop()
                 self.progress.configure(mode="determinate")
             self.progress.set(fraction)
-        self.status.configure(
-            text=self.tr("run.rows", rows=f"{progress.rows_processed:,}")
-        )
+        self.status.configure(text=self.tr("run.rows", rows=f"{progress.rows_processed:,}"))
         for rule_id, count in progress.counts.items():
             label = self.counter_labels.get(rule_id)
             if label is not None:
@@ -755,6 +747,7 @@ class RunStep(StepFrame):
 
 # ------------------------------------------------------------------ step 5: report
 
+
 class ReportStep(StepFrame):
     help_key = "step.report.help"
 
@@ -799,9 +792,9 @@ class ReportStep(StepFrame):
 
         actions = ctk.CTkFrame(self, fg_color="transparent")
         actions.grid(row=2, column=0, sticky="w", **_PAD)
-        ctk.CTkButton(
-            actions, text=self.tr("report.export.all"), command=self._export_all
-        ).grid(row=0, column=0, padx=(0, 8))
+        ctk.CTkButton(actions, text=self.tr("report.export.all"), command=self._export_all).grid(
+            row=0, column=0, padx=(0, 8)
+        )
         ctk.CTkButton(
             actions, text=self.tr("report.export.report"), command=self._save_report
         ).grid(row=0, column=1)
@@ -823,13 +816,12 @@ class ReportStep(StepFrame):
         card.grid(row=index, column=0, sticky="ew", pady=6)
         card.grid_columnconfigure(0, weight=1)
 
-        title = (
-            f"{presenter.rule_label(rule_id)} - "
-            + tr("report.matches", count=f"{presenter.match_count(rule_id):,}")
+        title = f"{presenter.rule_label(rule_id)} - " + tr(
+            "report.matches", count=f"{presenter.match_count(rule_id):,}"
         )
-        ctk.CTkLabel(
-            card, text=title, anchor="w", font=ctk.CTkFont(weight="bold")
-        ).grid(row=0, column=0, sticky="w", **_PAD)
+        ctk.CTkLabel(card, text=title, anchor="w", font=ctk.CTkFont(weight="bold")).grid(
+            row=0, column=0, sticky="w", **_PAD
+        )
         ctk.CTkButton(
             card,
             text=tr("report.export.rule"),
