@@ -1,0 +1,53 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "lsa"
+version = "0.1.0"
+description = "Large Spreadsheet Analyzer — find rows matching user-defined rules in very large CSV/XLS/XLSX/ODS files, fully offline."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "MIT" }
+authors = [{ name = "Sébastien Denooz" }]
+dependencies = [
+    "customtkinter>=5.2",
+    "python-calamine>=0.5",
+    "openpyxl>=3.1",
+    "charset-normalizer>=3.4",
+    "tqdm>=4.66",
+]
+
+[project.scripts]
+lsa = "lsa.cli.main:main"
+
+[project.gui-scripts]
+lsa-gui = "lsa.gui.app:main"
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "ruff>=0.8",
+]
+build = [
+    "pyinstaller>=6.11",
+]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/lsa"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py311"
+src = ["src", "tests", "scripts"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -m 'not perf and not gui'"
+markers = [
+    "perf: performance smoke tests (slow, generate large fixtures; run with -m perf)",
+    "gui: tests that require a real display",
+]
