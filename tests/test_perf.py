@@ -6,12 +6,16 @@ budget the spec sets for 1 GB inputs.
 """
 
 import importlib.util
-import resource
 import sys
 import time
 from pathlib import Path
 
 import pytest
+
+try:
+    import resource  # Unix-only; pytest imports this module even when deselected
+except ImportError:  # pragma: no cover - Windows
+    resource = None
 
 from lsa.core.csv_stream import CsvOptions, CsvRowFetcher, CsvRowStream
 from lsa.core.rules import ruleset_from_dict
@@ -55,7 +59,9 @@ def _load_generator():
     return module
 
 
-def _peak_rss_mb() -> float:
+def _peak_rss_mb() -> float | None:
+    if resource is None:  # Windows: no resource module; skip the memory assert
+        return None
     peak = resource.getrusage(resource.RUSAGE_SELF).ru_maxrss
     # ru_maxrss is KB on Linux, bytes on macOS.
     return peak / 1024 if sys.platform != "darwin" else peak / (1024 * 1024)
@@ -71,7 +77,7 @@ def test_million_row_scan(tmp_path_factory) -> None:
 
     ruleset = ruleset_from_dict(RULES)
     options = CsvOptions(has_header=True)
-    rss_before = _peak_rss_mb()
+    rss_before = _peak_rss_mb() or 0.0
     started = time.perf_counter()
     with (
         CsvRowStream(csv_path, options) as stream,
@@ -79,7 +85,8 @@ def test_million_row_scan(tmp_path_factory) -> None:
     ):
         summary = run_scan(stream, ruleset, store, progress_interval_rows=100_000)
         elapsed = time.perf_counter() - started
-        rss_delta = _peak_rss_mb() - rss_before
+        rss_peak = _peak_rss_mb()
+        rss_delta = None if rss_peak is None else rss_peak - rss_before
 
         assert summary.rows_scanned == ROWS
         assert summary.counts == planted
@@ -94,7 +101,8 @@ def test_million_row_scan(tmp_path_factory) -> None:
 
     print(
         f"\nscanned {ROWS:,} rows ({size_mb:.0f} MB) in {elapsed:.1f}s, "
-        f"peak RSS delta {rss_delta:.0f} MB"
+        f"peak RSS delta {'n/a' if rss_delta is None else f'{rss_delta:.0f} MB'}"
     )
     assert elapsed < 120, f"scan too slow: {elapsed:.1f}s"
-    assert rss_delta < 500, f"scan used too much memory: {rss_delta:.0f} MB"
+    if rss_delta is not None:
+        assert rss_delta < 500, f"scan used too much memory: {rss_delta:.0f} MB"
