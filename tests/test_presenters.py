@@ -227,6 +227,63 @@ def test_drafts_round_trip_through_ruleset() -> None:
     assert build_ruleset(back, settings) == ruleset
 
 
+def test_is_duplicate_drafts_round_trip() -> None:
+    settings = Settings()
+    single = RuleDraft(
+        id="dup1",
+        label="one column",
+        match="all",
+        conditions=[ConditionDraft(type="is_duplicate", column_by="header", column_value="email")],
+    )
+    pair = RuleDraft(
+        id="dup2",
+        label="two columns",
+        match="all",
+        conditions=[
+            ConditionDraft(
+                type="is_duplicate",
+                column_by="index",
+                column_value="3",
+                other_by="index",
+                other_value="4",
+            )
+        ],
+    )
+    ruleset = build_ruleset([single, pair], settings)
+    assert len(ruleset.rules[0].conditions[0].columns) == 1
+    assert [ref.value for ref in ruleset.rules[1].conditions[0].columns] == [3, 4]
+    back = ruleset_to_drafts(ruleset)
+    assert build_ruleset(back, settings) == ruleset
+    assert back[1].conditions[0].other_value == "4"
+
+
+def test_load_rejects_three_column_duplicate_in_editor(tmp_path) -> None:
+    doc = {
+        "version": 1,
+        "rules": [
+            {
+                "id": "wide",
+                "match": "all",
+                "conditions": [
+                    {
+                        "type": "is_duplicate",
+                        "columns": [
+                            {"by": "index", "value": 0},
+                            {"by": "index", "value": 1},
+                            {"by": "index", "value": 2},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    path = tmp_path / "wide.json"
+    path.write_text(json.dumps(doc), encoding="utf-8")
+    presenter = RulesPresenter(WizardState(), TR)
+    error = presenter.load(path)
+    assert error is not None and "more than 2 columns" in error
+
+
 def test_rules_load_and_save(tmp_path) -> None:
     state = WizardState(rule_drafts=[_draft_rule()], settings=Settings(empty_tokens=("", "NA")))
     presenter = RulesPresenter(state, TR)

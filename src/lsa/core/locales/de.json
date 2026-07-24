@@ -81,5 +81,8 @@
   "ok": "OK",
   "match.all.short": "UND",
   "match.any.short": "ODER",
-  "run.malformed": "{count} fehlerhafte Zeile(n) wurden übersprungen - prüfen Sie Trennzeichen und Anführungszeichen."
+  "run.malformed": "{count} fehlerhafte Zeile(n) wurden übersprungen - prüfen Sie Trennzeichen und Anführungszeichen.",
+  "cond.type.is_duplicate": "ist in mehreren Zeilen dupliziert",
+  "col.optional": "Spalte (optional)",
+  "run.finalizing": "Duplikatgruppen werden ermittelt..."
 }

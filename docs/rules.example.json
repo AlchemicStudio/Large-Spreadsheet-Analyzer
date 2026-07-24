@@ -13,13 +13,25 @@
     },
     {
       "id": "billing-equals-shipping",
-      "label": "Billing address equals shipping address",
+      "label": "Billing address equals shipping address (same row)",
       "match": "any",
       "conditions": [
         {
           "type": "equals_column",
           "column": { "by": "letter", "value": "D" },
           "other_column": { "by": "letter", "value": "H" }
+        }
+      ]
+    },
+    {
+      "id": "duplicated-email",
+      "label": "The same e-mail appears in several rows",
+      "match": "all",
+      "conditions": [
+        { "type": "not_empty", "column": { "by": "header", "value": "email" } },
+        {
+          "type": "is_duplicate",
+          "columns": [{ "by": "header", "value": "email" }]
         }
       ]
     }

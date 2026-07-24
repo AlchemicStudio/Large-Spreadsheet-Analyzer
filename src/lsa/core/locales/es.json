@@ -81,5 +81,8 @@
   "ok": "Aceptar",
   "match.all.short": "Y",
   "match.any.short": "O",
-  "run.malformed": "{count} fila(s) mal formada(s) se omitieron - revise el separador y las comillas."
+  "run.malformed": "{count} fila(s) mal formada(s) se omitieron - revise el separador y las comillas.",
+  "cond.type.is_duplicate": "está duplicada en varias filas",
+  "col.optional": "Columna (opcional)",
+  "run.finalizing": "Resolviendo grupos de duplicados..."
 }

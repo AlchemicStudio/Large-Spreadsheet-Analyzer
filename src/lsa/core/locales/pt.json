@@ -81,5 +81,8 @@
   "ok": "OK",
   "match.all.short": "E",
   "match.any.short": "OU",
-  "run.malformed": "{count} linha(s) mal formada(s) foram ignoradas - verifique o separador e as aspas."
+  "run.malformed": "{count} linha(s) mal formada(s) foram ignoradas - verifique o separador e as aspas.",
+  "cond.type.is_duplicate": "está duplicada em várias linhas",
+  "col.optional": "Coluna (opcional)",
+  "run.finalizing": "A identificar grupos de duplicados..."
 }

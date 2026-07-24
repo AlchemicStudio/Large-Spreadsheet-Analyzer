@@ -119,6 +119,9 @@ def _make_progress(stream: RowStream, disabled: bool):
     state = {"last": 0}
 
     def on_progress(progress: ScanProgress) -> None:
+        if progress.finalizing:
+            bar.set_description("resolving duplicate groups")
+            return
         current = progress.bytes_read if byte_mode else progress.rows_processed
         bar.update((current or 0) - state["last"])
         state["last"] = current or 0

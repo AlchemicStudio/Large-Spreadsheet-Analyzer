@@ -206,6 +206,57 @@ def test_column_letter_normalized_to_upper() -> None:
     assert ruleset_from_dict(doc).rules[0].conditions[0].column == ColumnRef("letter", "AA")
 
 
+def test_is_duplicate_parses_and_round_trips() -> None:
+    doc = {
+        "version": 1,
+        "rules": [
+            {
+                "id": "dup",
+                "label": "duplicated pair",
+                "match": "all",
+                "conditions": [
+                    {
+                        "type": "is_duplicate",
+                        "columns": [
+                            {"by": "header", "value": "email"},
+                            {"by": "letter", "value": "B"},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    rs = ruleset_from_dict(doc)
+    cond = rs.rules[0].conditions[0]
+    assert cond.columns == (ColumnRef("header", "email"), ColumnRef("letter", "B"))
+    assert cond.column is None and cond.other_column is None
+    assert ruleset_from_dict(ruleset_to_dict(rs)) == rs
+
+
+@pytest.mark.parametrize(
+    ("condition", "fragment"),
+    [
+        ({"type": "is_duplicate"}, "requires a non-empty 'columns' list"),
+        ({"type": "is_duplicate", "columns": []}, "requires a non-empty 'columns' list"),
+        (
+            {"type": "is_duplicate", "column": {"by": "index", "value": 0}},
+            "uses a 'columns' list",
+        ),
+        (
+            {"type": "is_empty", "column": {"by": "index", "value": 0}, "columns": []},
+            "'columns' is only valid for is_duplicate",
+        ),
+        (
+            {"type": "is_duplicate", "columns": [{"by": "index", "value": -1}]},
+            "integer >= 0",
+        ),
+    ],
+)
+def test_is_duplicate_validation_errors(condition: dict, fragment: str) -> None:
+    doc = {"version": 1, "rules": [{"id": "r", "match": "all", "conditions": [condition]}]}
+    _expect_errors(doc, fragment)
+
+
 def test_blank_token_always_included() -> None:
     doc = dict(VALID, settings={"empty_tokens": ["NA"]})
     assert ruleset_from_dict(doc).settings.empty_tokens == ("", "NA")

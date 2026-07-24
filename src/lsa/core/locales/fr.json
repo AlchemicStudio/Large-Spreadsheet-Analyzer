@@ -81,5 +81,8 @@
   "ok": "OK",
   "match.all.short": "ET",
   "match.any.short": "OU",
-  "run.malformed": "{count} ligne(s) mal formée(s) ont été ignorées - vérifiez le séparateur et le guillemet."
+  "run.malformed": "{count} ligne(s) mal formée(s) ont été ignorées - vérifiez le séparateur et le guillemet.",
+  "cond.type.is_duplicate": "est dupliquée dans plusieurs lignes",
+  "col.optional": "Colonne (facultatif)",
+  "run.finalizing": "Regroupement des doublons..."
 }

@@ -81,5 +81,8 @@
   "ok": "OK",
   "match.all.short": "AND",
   "match.any.short": "OR",
-  "run.malformed": "{count} malformed row(s) were skipped - check the separator and quote settings."
+  "run.malformed": "{count} malformed row(s) were skipped - check the separator and quote settings.",
+  "cond.type.is_duplicate": "is duplicated in several rows",
+  "col.optional": "Column (optional)",
+  "run.finalizing": "Resolving duplicate groups..."
 }

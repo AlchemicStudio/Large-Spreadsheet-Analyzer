@@ -11,9 +11,16 @@ Nothing ever leaves your machine.
   evaluated on each row. A 1M-row / ~140 MB CSV scans in a few seconds with
   a flat memory profile (matches are stored in SQLite on disk, not in RAM).
 - **Rules**: flat groups of conditions (`is_empty`, `not_empty`,
-  `equals_column`) combined with AND/OR, referencing columns by letter (`C`),
-  0-based index (`2`) or header name (`email`). Rules are saved/loaded as
-  versioned JSON (see `docs/rules.example.json`).
+  `equals_column` — two cells of the *same* row — and `is_duplicate` —
+  the same value(s) appearing in *several* rows) combined with AND/OR,
+  referencing columns by letter (`C`), 0-based index (`2`) or header name
+  (`email`). Rules are saved/loaded as versioned JSON (see
+  `docs/rules.example.json`).
+- **Duplicate detection**: `is_duplicate` takes 1..n key columns (the GUI
+  edits up to 2; more via JSON); matched rows are shown and exported
+  *grouped* — all rows sharing the same key together. Blank cells count as
+  equal content; add a `not_empty` condition to the rule to exclude them.
+  The duplicate index is built on disk (SQLite), never in RAM.
 - **GUI**: a five-step CustomTkinter wizard (file → import options → rules →
   run → report) translated into English, French, German, Spanish and
   Portuguese (pt-PT). Scans run in an isolated scan *process* with live

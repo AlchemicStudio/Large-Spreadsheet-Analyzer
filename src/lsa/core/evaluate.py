@@ -1,31 +1,67 @@
-"""Compile a RuleSet against a concrete file layout for fast per-row evaluation."""
+"""Compile a RuleSet against a concrete file layout for fast per-row evaluation.
+
+Per-row conditions (is_empty / not_empty / equals_column) become one
+predicate per rule.  ``is_duplicate`` conditions cannot be decided per row —
+they need knowledge of the whole file — so compilation exposes them as *key
+extractors*: the scanner records every row's key(s) and resolves duplicate
+groups after the pass (see :mod:`lsa.core.scan`).
+"""
 
 from __future__ import annotations
 
 from collections.abc import Callable, Sequence
+from typing import NamedTuple
 
 from .rules import Condition, RuleSet
 
 Predicate = Callable[[Sequence[str]], bool]
 CellGetter = Callable[[Sequence[str]], str]
+KeyExtractor = Callable[[Sequence[str]], str]
+
+# Joins multi-column duplicate keys; the unit separator cannot appear in
+# cell text coming from the readers.
+_KEY_SEPARATOR = "\x1f"
+
+
+class DuplicateCondition(NamedTuple):
+    """One is_duplicate condition bound to the file layout."""
+
+    cond_id: str
+    key_of: KeyExtractor
+
+
+class CompiledRule(NamedTuple):
+    """One rule bound to the file layout.
+
+    ``perrow`` is None when the rule has no per-row conditions (pure
+    duplicate rule); ``dup_conds`` is empty for ordinary rules.
+    """
+
+    rule_id: str
+    match: str
+    perrow: Predicate | None
+    dup_conds: tuple[DuplicateCondition, ...]
 
 
 class CompiledRules:
     """A RuleSet bound to a header/width, evaluating every rule on each row."""
 
-    __slots__ = ("_evaluators", "rule_ids")
+    __slots__ = ("_plain", "has_duplicates", "rule_ids", "rules")
 
-    def __init__(self, rule_ids: tuple[str, ...], evaluators: tuple[Predicate, ...]):
-        self.rule_ids = rule_ids
-        self._evaluators = evaluators
+    def __init__(self, rules: tuple[CompiledRule, ...]):
+        self.rules = rules
+        self.rule_ids = tuple(rule.rule_id for rule in rules)
+        self.has_duplicates = any(rule.dup_conds for rule in rules)
+        # Fast path used when no rule involves duplicate detection.
+        self._plain = tuple((rule.rule_id, rule.perrow) for rule in rules if not rule.dup_conds)
 
     def evaluate(self, cells: Sequence[str]) -> list[str]:
-        """Return the ids of all rules matching this row (cells as text)."""
-        return [rid for rid, ev in zip(self.rule_ids, self._evaluators, strict=True) if ev(cells)]
+        """Ids of rules (without duplicate conditions) matching this row."""
+        return [rule_id for rule_id, perrow in self._plain if perrow is not None and perrow(cells)]
 
 
 def compile_rules(ruleset: RuleSet, header: list[str] | None, width: int) -> CompiledRules:
-    """Resolve all column references and build one predicate per rule.
+    """Resolve all column references and build one CompiledRule per rule.
 
     ``header``/``width`` come from the file being scanned (see
     :meth:`lsa.core.columns.ColumnRef.resolve`).  Raises
@@ -54,10 +90,17 @@ def compile_rules(ruleset: RuleSet, header: list[str] | None, width: int) -> Com
 
         return get
 
+    def transformed_getter(idx: int) -> CellGetter:
+        get = cell_getter(idx)
+        if fold is None:
+            return get
+        return lambda cells: fold(get(cells))
+
     def compile_condition(cond: Condition) -> Predicate:
+        assert cond.column is not None  # guaranteed by rules validation
         get = cell_getter(cond.column.resolve(header, width))
         if cond.type == "equals_column":
-            assert cond.other_column is not None  # guaranteed by rules validation
+            assert cond.other_column is not None
             other = cell_getter(cond.other_column.resolve(header, width))
             if fold is None:
                 return lambda cells: get(cells) == other(cells)
@@ -70,22 +113,50 @@ def compile_rules(ruleset: RuleSet, header: list[str] | None, width: int) -> Com
             return empty
         return lambda cells: not empty(cells)
 
-    rule_ids: list[str] = []
-    evaluators: list[Predicate] = []
+    def compile_duplicate(rule_id: str, index: int, cond: Condition) -> DuplicateCondition:
+        getters = tuple(
+            transformed_getter(ref.resolve(header, width)) for ref in cond.columns or ()
+        )
+        if len(getters) == 1:
+            single = getters[0]
+            return DuplicateCondition(f"{rule_id}{_KEY_SEPARATOR}{index}", single)
+
+        def key_of(cells: Sequence[str], _g: tuple[CellGetter, ...] = getters) -> str:
+            return _KEY_SEPARATOR.join(g(cells) for g in _g)
+
+        return DuplicateCondition(f"{rule_id}{_KEY_SEPARATOR}{index}", key_of)
+
+    compiled: list[CompiledRule] = []
     for rule in ruleset.rules:
-        predicates = tuple(compile_condition(c) for c in rule.conditions)
-        if len(predicates) == 1:
-            evaluator = predicates[0]
+        predicates: list[Predicate] = []
+        dup_conds: list[DuplicateCondition] = []
+        for index, cond in enumerate(rule.conditions):
+            if cond.type == "is_duplicate":
+                dup_conds.append(compile_duplicate(rule.id, index, cond))
+            else:
+                predicates.append(compile_condition(cond))
+
+        perrow: Predicate | None
+        if not predicates:
+            perrow = None
+        elif len(predicates) == 1:
+            perrow = predicates[0]
         elif rule.match == "all":
 
-            def evaluator(cells: Sequence[str], _p: tuple[Predicate, ...] = predicates) -> bool:
+            def perrow(cells: Sequence[str], _p: tuple[Predicate, ...] = tuple(predicates)) -> bool:
                 return all(p(cells) for p in _p)
 
         else:
 
-            def evaluator(cells: Sequence[str], _p: tuple[Predicate, ...] = predicates) -> bool:
+            def perrow(cells: Sequence[str], _p: tuple[Predicate, ...] = tuple(predicates)) -> bool:
                 return any(p(cells) for p in _p)
 
-        rule_ids.append(rule.id)
-        evaluators.append(evaluator)
-    return CompiledRules(tuple(rule_ids), tuple(evaluators))
+        compiled.append(
+            CompiledRule(
+                rule_id=rule.id,
+                match=rule.match,
+                perrow=perrow,
+                dup_conds=tuple(dup_conds),
+            )
+        )
+    return CompiledRules(tuple(compiled))

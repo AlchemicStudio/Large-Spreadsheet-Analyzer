@@ -81,18 +81,24 @@ def drafts_to_document(drafts: list[RuleDraft], settings: Settings) -> dict[str,
     for draft in drafts:
         conditions: list[dict[str, Any]] = []
         for cond in draft.conditions:
-            entry: dict[str, Any] = {
-                "type": cond.type,
-                "column": {
-                    "by": cond.column_by,
-                    "value": _ref_value(cond.column_by, cond.column_value),
-                },
+            first_ref = {
+                "by": cond.column_by,
+                "value": _ref_value(cond.column_by, cond.column_value),
             }
-            if cond.type == "equals_column":
-                entry["other_column"] = {
-                    "by": cond.other_by,
-                    "value": _ref_value(cond.other_by, cond.other_value),
-                }
+            if cond.type == "is_duplicate":
+                columns = [first_ref]
+                if cond.other_value.strip():
+                    columns.append(
+                        {"by": cond.other_by, "value": _ref_value(cond.other_by, cond.other_value)}
+                    )
+                entry: dict[str, Any] = {"type": cond.type, "columns": columns}
+            else:
+                entry = {"type": cond.type, "column": first_ref}
+                if cond.type == "equals_column":
+                    entry["other_column"] = {
+                        "by": cond.other_by,
+                        "value": _ref_value(cond.other_by, cond.other_value),
+                    }
             conditions.append(entry)
         rules.append(
             {
@@ -119,11 +125,32 @@ def build_ruleset(drafts: list[RuleDraft], settings: Settings) -> RuleSet:
 
 
 def ruleset_to_drafts(ruleset: RuleSet) -> list[RuleDraft]:
-    """Convert a loaded RuleSet back into editable drafts."""
+    """Convert a loaded RuleSet back into editable drafts.
+
+    Raises ValueError when the rules use features the visual editor cannot
+    represent (an is_duplicate condition with more than 2 key columns).
+    """
     drafts = []
     for rule in ruleset.rules:
         conditions = []
         for cond in rule.conditions:
+            if cond.type == "is_duplicate":
+                columns = cond.columns or ()
+                if len(columns) > 2:
+                    raise ValueError(
+                        f"rule {rule.id!r}: is_duplicate with more than 2 columns can only "
+                        "be edited in the JSON file, not in the visual editor"
+                    )
+                draft = ConditionDraft(
+                    type=cond.type,
+                    column_by=columns[0].by,
+                    column_value=str(columns[0].value),
+                )
+                if len(columns) > 1:
+                    draft.other_by = columns[1].by
+                    draft.other_value = str(columns[1].value)
+                conditions.append(draft)
+                continue
             draft = ConditionDraft(
                 type=cond.type,
                 column_by=cond.column.by,
@@ -354,10 +381,13 @@ class RulesPresenter:
         """Load a rules JSON file into the editor; returns an error text or None."""
         try:
             ruleset = load_rules(path)
+            drafts = ruleset_to_drafts(ruleset)
         except RuleValidationError as exc:
             return self._tr("rules.invalid", errors="\n".join(exc.errors))
+        except ValueError as exc:
+            return self._tr("rules.invalid", errors=str(exc))
         self._state.settings = ruleset.settings
-        self._state.rule_drafts = ruleset_to_drafts(ruleset)
+        self._state.rule_drafts = drafts
         return None
 
     def save(self, path: str | Path) -> str | None:

@@ -30,10 +30,15 @@ from .columns import ColumnRef, letter_to_index
 
 RULES_FILE_VERSION = 1
 
-ConditionType = Literal["is_empty", "not_empty", "equals_column"]
+ConditionType = Literal["is_empty", "not_empty", "equals_column", "is_duplicate"]
 MatchMode = Literal["all", "any"]
 
-CONDITION_TYPES: tuple[ConditionType, ...] = ("is_empty", "not_empty", "equals_column")
+CONDITION_TYPES: tuple[ConditionType, ...] = (
+    "is_empty",
+    "not_empty",
+    "equals_column",
+    "is_duplicate",
+)
 MATCH_MODES: tuple[MatchMode, ...] = ("all", "any")
 
 
@@ -60,11 +65,20 @@ class Settings:
 
 @dataclass(frozen=True, slots=True)
 class Condition:
-    """One per-row condition; ``other_column`` is only set for equals_column."""
+    """One condition of a rule.
+
+    - ``is_empty`` / ``not_empty``: use ``column``.
+    - ``equals_column``: compares ``column`` with ``other_column`` on the
+      *same* row.
+    - ``is_duplicate``: uses ``columns`` (1..n references); a row matches
+      when the combination of values in those columns appears in more than
+      one row of the file — duplicate detection across rows.
+    """
 
     type: ConditionType
-    column: ColumnRef
+    column: ColumnRef | None = None
     other_column: ColumnRef | None = None
+    columns: tuple[ColumnRef, ...] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -90,6 +104,18 @@ def _ref_to_dict(ref: ColumnRef) -> dict[str, Any]:
     return {"by": ref.by, "value": ref.value}
 
 
+def _condition_to_dict(cond: Condition) -> dict[str, Any]:
+    if cond.type == "is_duplicate":
+        return {
+            "type": cond.type,
+            "columns": [_ref_to_dict(ref) for ref in cond.columns or ()],
+        }
+    data: dict[str, Any] = {"type": cond.type, "column": _ref_to_dict(cond.column)}
+    if cond.other_column is not None:
+        data["other_column"] = _ref_to_dict(cond.other_column)
+    return data
+
+
 def ruleset_to_dict(ruleset: RuleSet) -> dict[str, Any]:
     """Serialize a RuleSet to a JSON-compatible dict."""
     return {
@@ -104,18 +130,7 @@ def ruleset_to_dict(ruleset: RuleSet) -> dict[str, Any]:
                 "id": rule.id,
                 "label": rule.label,
                 "match": rule.match,
-                "conditions": [
-                    {
-                        "type": cond.type,
-                        "column": _ref_to_dict(cond.column),
-                        **(
-                            {"other_column": _ref_to_dict(cond.other_column)}
-                            if cond.other_column is not None
-                            else {}
-                        ),
-                    }
-                    for cond in rule.conditions
-                ],
+                "conditions": [_condition_to_dict(cond) for cond in rule.conditions],
             }
             for rule in ruleset.rules
         ],
@@ -190,6 +205,29 @@ def _parse_condition(data: Any, where: str, errors: list[str]) -> Condition | No
             f"{where}: unknown condition type {ctype!r} "
             f"(expected one of {', '.join(CONDITION_TYPES)})"
         )
+        return None
+
+    if ctype == "is_duplicate":
+        if "column" in data or "other_column" in data:
+            errors.append(
+                f"{where}: is_duplicate uses a 'columns' list, not 'column'/'other_column'"
+            )
+            return None
+        raw_columns = data.get("columns")
+        if not isinstance(raw_columns, list) or not raw_columns:
+            errors.append(
+                f"{where}: is_duplicate requires a non-empty 'columns' list of references"
+            )
+            return None
+        refs = [
+            _parse_ref(raw, f"{where}.columns[{i}]", errors) for i, raw in enumerate(raw_columns)
+        ]
+        if any(ref is None for ref in refs):
+            return None
+        return Condition(type=ctype, columns=tuple(ref for ref in refs if ref is not None))
+
+    if "columns" in data:
+        errors.append(f"{where}: 'columns' is only valid for is_duplicate")
         return None
     column = _parse_ref(data.get("column"), f"{where}.column", errors)
     other: ColumnRef | None = None

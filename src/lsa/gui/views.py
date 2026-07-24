@@ -483,6 +483,7 @@ class RulesStep(StepFrame):
             "is_empty": tr("cond.type.is_empty"),
             "not_empty": tr("cond.type.not_empty"),
             "equals_column": tr("cond.type.equals_column"),
+            "is_duplicate": tr("cond.type.is_duplicate"),
         }
         by_labels = {
             "letter": tr("col.by.letter"),
@@ -490,7 +491,7 @@ class RulesStep(StepFrame):
             "header": tr("col.by.header"),
         }
 
-        def ref_editor(column: int, by_attr: str, value_attr: str) -> None:
+        def ref_editor(column: int, by_attr: str, value_attr: str, placeholder: str) -> None:
             by_var = ctk.StringVar(value=by_labels[getattr(cond, by_attr)])
 
             def set_by(label: str, c=cond, attr=by_attr) -> None:
@@ -505,24 +506,27 @@ class RulesStep(StepFrame):
                 setattr(c, attr, v.get())
 
             value_var.trace_add("write", set_value)
-            ctk.CTkEntry(
-                row, textvariable=value_var, width=140, placeholder_text=tr("col.value")
-            ).grid(row=0, column=column + 1, padx=(0, 12))
+            ctk.CTkEntry(row, textvariable=value_var, width=140, placeholder_text=placeholder).grid(
+                row=0, column=column + 1, padx=(0, 12)
+            )
 
-        ref_editor(0, "column_by", "column_value")
+        ref_editor(0, "column_by", "column_value", tr("col.value"))
 
         type_var = ctk.StringVar(value=type_labels[cond.type])
 
         def set_type(label: str, c=cond) -> None:
             c.type = {v: k for k, v in type_labels.items()}[label]
-            self._rebuild_rules()  # equals_column shows/hides the second column
+            self._rebuild_rules()  # some types show/hide the second column editor
 
         ctk.CTkOptionMenu(
             row, values=list(type_labels.values()), variable=type_var, command=set_type, width=150
         ).grid(row=0, column=2, padx=(0, 12))
 
         if cond.type == "equals_column":
-            ref_editor(3, "other_by", "other_value")
+            ref_editor(3, "other_by", "other_value", tr("col.value"))
+        elif cond.type == "is_duplicate":
+            # Optional second key column: leave empty for a single-column key.
+            ref_editor(3, "other_by", "other_value", tr("col.optional"))
 
         ctk.CTkButton(
             row,
@@ -685,6 +689,14 @@ class RunStep(StepFrame):
         self._poll_job = self.after(100, self._poll)
 
     def _on_progress(self, progress) -> None:
+        if getattr(progress, "finalizing", False):
+            # Duplicate-group resolution: duration unknown, keep the UI alive.
+            if not self._indeterminate:
+                self._indeterminate = True
+                self.progress.configure(mode="indeterminate")
+                self.progress.start()
+            self.status.configure(text=self.tr("run.finalizing"))
+            return
         fraction = progress.fraction
         if fraction is None:
             if not self._indeterminate:

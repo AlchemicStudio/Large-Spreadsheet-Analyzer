@@ -18,13 +18,18 @@ _BATCH_SIZE = 1000
 
 @dataclass(slots=True)
 class ScanProgress:
-    """A progress snapshot handed to the progress callback during a scan."""
+    """A progress snapshot handed to the progress callback during a scan.
+
+    ``finalizing`` is True while duplicate groups are being resolved after
+    the streaming pass (no row-based progress exists for that phase).
+    """
 
     rows_processed: int
     bytes_read: int | None
     total_bytes: int | None
     total_rows: int | None
     counts: dict[str, int]
+    finalizing: bool = False
 
     @property
     def fraction(self) -> float | None:
@@ -99,24 +104,53 @@ def run_scan(
 
     compiled = compile_rules(ruleset, stream.header, stream.width)
     cache_cells = not stream.supports_offsets
+    dup_rules = [rule for rule in compiled.rules if rule.dup_conds]
 
     rows_processed = 0
     cancelled = False
     batch: list[tuple[str, int, int | None, str | None]] = []
+    dup_batch: list[tuple[str, str, int, int | None, str | None, int]] = []
     for row in stream.rows():
         if cancel is not None and cancel.is_set():
             cancelled = True
             break
         rows_processed += 1
-        matched = compiled.evaluate(row.cells)
+        cells = row.cells
+        matched = compiled.evaluate(cells)
+        cells_json: str | None = None
+        if (matched or dup_rules) and cache_cells:
+            cells_json = json.dumps(cells, ensure_ascii=False)
         if matched:
-            cells_json = json.dumps(row.cells, ensure_ascii=False) if cache_cells else None
             for rule_id in matched:
                 counts[rule_id] += 1
                 batch.append((rule_id, row.number, row.offset, cells_json))
             if len(batch) >= _BATCH_SIZE:
                 store.add_matches(batch)
                 batch.clear()
+        for rule in dup_rules:
+            # is_duplicate needs whole-file knowledge: record this row's
+            # key(s) now, resolve the groups after the pass.
+            perrow_ok = rule.perrow(cells) if rule.perrow is not None else True
+            if rule.match == "any":
+                if rule.perrow is not None and perrow_ok:
+                    counts[rule.rule_id] += 1
+                    batch.append((rule.rule_id, row.number, row.offset, cells_json))
+                candidate = 0
+            else:
+                candidate = 1 if perrow_ok else 0
+            for cond in rule.dup_conds:
+                entry = (
+                    cond.cond_id,
+                    cond.key_of(cells),
+                    row.number,
+                    row.offset,
+                    cells_json,
+                    candidate,
+                )
+                dup_batch.append(entry)
+        if len(dup_batch) >= _BATCH_SIZE:
+            store.add_dup_entries(dup_batch)
+            dup_batch.clear()
         if (
             progress_callback is not None
             and progress_interval_rows
@@ -126,7 +160,20 @@ def run_scan(
 
     if batch:
         store.add_matches(batch)
+    if dup_batch:
+        store.add_dup_entries(dup_batch)
     store.flush()
+    if dup_rules:
+        if progress_callback is not None:
+            finalizing = snapshot(rows_processed)
+            finalizing.finalizing = True
+            progress_callback(finalizing)
+        for rule in dup_rules:
+            # Partial data on cancel still yields (partial) duplicate groups.
+            store.resolve_duplicates(
+                rule.rule_id, [cond.cond_id for cond in rule.dup_conds], rule.match
+            )
+            counts[rule.rule_id] = store.count(rule.rule_id)
     if progress_callback is not None:
         progress_callback(snapshot(rows_processed))
     return ScanSummary(
