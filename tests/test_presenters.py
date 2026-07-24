@@ -340,29 +340,43 @@ def test_scan_controller_results_valid_for_detects_config_change(make_csv) -> No
     assert not controller.results_valid_for(**config)  # discarded
 
 
-def test_scan_controller_survives_base_exception(monkeypatch, tmp_path) -> None:
-    # python-calamine panics are BaseException; the worker must still post an
-    # error message instead of dying silently and hanging the GUI.
-    class FakePanic(BaseException):
-        pass
+def test_scan_controller_reports_killed_process(tmp_path) -> None:
+    # A scan stopped by the OS (OOM kill, crash) must surface as an error
+    # message instead of leaving the UI on "running" forever.
+    import time
 
-    def explode(*_args, **_kwargs):
-        raise FakePanic("rust panic")
-
-    monkeypatch.setattr("lsa.gui.worker.open_stream", explode)
+    path = tmp_path / "slow.csv"
+    with open(path, "w", encoding="utf-8", newline="") as f:
+        f.write("name,email\n")
+        for i in range(1_000_000):
+            f.write(f"p{i},\n")
     controller = ScanController()
     controller.start(
-        path=tmp_path / "x.csv",
+        path=path,
         ruleset=build_ruleset([_draft_rule()], Settings()),
-        csv_options=None,
+        csv_options=CsvOptions(),
         sheet=None,
         has_header=True,
     )
+    deadline = time.monotonic() + 10
+    while not controller.running and time.monotonic() < deadline:
+        time.sleep(0.01)
+    assert controller.running
+    controller._process.terminate()  # simulate an OOM kill mid-scan
     controller.join(timeout=10)
-    messages = controller.drain()
-    assert messages[-1].kind == "error"
-    assert "rust panic" in str(messages[-1].payload)
-    assert controller.store is None
+
+    messages: list = []
+    deadline = time.monotonic() + 5
+    while time.monotonic() < deadline:
+        messages.extend(controller.drain())
+        if any(m.kind == "error" for m in messages):
+            break
+        time.sleep(0.05)
+    errors = [m for m in messages if m.kind == "error"]
+    assert errors, f"no error surfaced; got kinds {[m.kind for m in messages]}"
+    assert "terminated unexpectedly" in str(errors[0].payload)
+    assert controller.summary is None
+    controller.discard_results()
 
 
 def test_scan_controller_reports_errors(tmp_path) -> None:

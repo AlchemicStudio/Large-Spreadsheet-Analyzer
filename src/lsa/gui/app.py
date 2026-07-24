@@ -144,15 +144,17 @@ class App(ctk.CTk):
     # ------------------------------------------------------------- lifecycle
 
     def _on_close(self) -> None:
-        self.controller.cancel()
-        if self.controller.running:
-            self.controller.join(timeout=2)
-        self.controller.discard_results()
+        self.controller.shutdown()
         self.destroy()
 
 
 def main() -> None:
     """GUI entry point (``lsa-gui``)."""
+    # Must run before anything else: the scan subprocess is spawned by
+    # re-executing this entry point in frozen (PyInstaller) builds.
+    import multiprocessing
+
+    multiprocessing.freeze_support()
     ctk.set_appearance_mode("system")
     ctk.set_default_color_theme("blue")
     App().mainloop()

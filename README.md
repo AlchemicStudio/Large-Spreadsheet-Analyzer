@@ -16,9 +16,10 @@ Nothing ever leaves your machine.
   versioned JSON (see `docs/rules.example.json`).
 - **GUI**: a five-step CustomTkinter wizard (file → import options → rules →
   run → report) translated into English, French, German, Spanish and
-  Portuguese (pt-PT). Scans run in a worker thread with live per-rule
-  counters, a global progress bar and a Cancel button (partial results are
-  kept and marked as partial).
+  Portuguese (pt-PT). Scans run in an isolated scan *process* with live
+  per-rule counters, a global progress bar and a Cancel button (partial
+  results are kept and marked as partial). If the scan process dies (e.g.
+  stopped by the OS), the GUI reports it instead of hanging or crashing.
 - **CLI**: the same engine headless, for pipelines
   (exit code `0` = no matches, `1` = matches found, `2` = error).
 - **Report**: per-rule match counts with lazily loaded sample rows
@@ -96,7 +97,8 @@ the CustomTkinter theme assets are missing at runtime.
 src/lsa/core/   file readers (RowStream), rules, evaluation, SQLite result
                 store, report model, JSON (de)serialization, i18n catalogs
 src/lsa/cli/    argparse front end
-src/lsa/gui/    CustomTkinter wizard; testable presenters, worker thread +
-                queue polled with after() (Tk is only touched from the main
-                thread)
+src/lsa/gui/    CustomTkinter wizard; testable presenters; scans run in a
+                spawned subprocess (Tcl/Tk is not thread-safe — process
+                isolation makes worker-related crashes impossible), messages
+                polled from a queue with after() on the main thread
 ```

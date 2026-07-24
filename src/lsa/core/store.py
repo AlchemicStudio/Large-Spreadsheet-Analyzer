@@ -76,6 +76,25 @@ def _cleanup_stale_stores(directory: Path) -> None:
                     leftover.unlink()
 
 
+def make_temp_store_path() -> Path:
+    """Create an empty temp file for a result store and return its path.
+
+    Callers using this directly (instead of ``ResultStore()``) own the file
+    and must delete it themselves — used by the GUI, where the scan process
+    writes the store and the UI process reads and later removes it.
+    """
+    store_dir = _default_store_dir()
+    _cleanup_stale_stores(store_dir if store_dir is not None else Path(tempfile.gettempdir()))
+    handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - we only want the name
+        prefix=_TEMP_PREFIX,
+        suffix=_TEMP_SUFFIX,
+        dir=None if store_dir is None else str(store_dir),
+        delete=False,
+    )
+    handle.close()
+    return Path(handle.name)
+
+
 class ResultStore:
     """Result storage for one scan run.
 
@@ -86,18 +105,7 @@ class ResultStore:
 
     def __init__(self, db_path: str | Path | None = None):
         if db_path is None:
-            store_dir = _default_store_dir()
-            _cleanup_stale_stores(
-                store_dir if store_dir is not None else Path(tempfile.gettempdir())
-            )
-            handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - we only want the name
-                prefix=_TEMP_PREFIX,
-                suffix=_TEMP_SUFFIX,
-                dir=None if store_dir is None else str(store_dir),
-                delete=False,
-            )
-            handle.close()
-            db_path = handle.name
+            db_path = make_temp_store_path()
             self._owns_file = True
         else:
             self._owns_file = False
