@@ -1,0 +1,41 @@
+name: Build bundles
+
+# Every pushed branch gets downloadable single-file executables for Linux
+# and Windows (Actions tab -> run -> Artifacts). Tagged releases additionally
+# get the onedir archives via release.yml.
+on:
+  push:
+    branches: ["**"]
+  workflow_dispatch:
+
+jobs:
+  bundle:
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Oldest available runner: a PyInstaller Linux binary needs a glibc
+          # at least as new as the build machine's, so older = wider support.
+          - os: ubuntu-22.04
+            artifact: lsa-linux-x86_64
+          - os: windows-latest
+            artifact: lsa-windows-x86_64
+    env:
+      UV_PYTHON: "3.12"
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v5
+        with:
+          enable-cache: true
+      - name: Install Python
+        run: uv python install 3.12
+      - name: Install dependencies (with PyInstaller)
+        run: uv sync --group build
+      - name: Build single-file executables
+        run: uv run python scripts/build_bundle.py
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: dist/bundle/*
+          if-no-files-found: error

@@ -5,39 +5,16 @@
 # --collect-all customtkinter is mandatory (theme JSON assets are loaded from
 # the package directory at runtime); here it is done via collect_all().
 
-import glob
 import os
 import sys
 
 from PyInstaller.utils.hooks import collect_all
 
+sys.path.insert(0, SPECPATH)  # noqa: F821
+from pyi_helpers import tcltk9_binaries
+
 ctk_datas, ctk_binaries, ctk_hidden = collect_all("customtkinter")
-
-
-def _tcltk9_binaries():
-    """Collect Tcl/Tk 9 shared libraries that PyInstaller's hook misses.
-
-    python-build-standalone (uv-managed) CPython links _tkinter against
-    Tcl/Tk 9.0; PyInstaller's tkinter support predates the 9.x naming and
-    collects the data directories but not these libraries.  A no-op on
-    interpreters using Tcl/Tk 8.6.
-    """
-    roots = (
-        os.path.join(sys.base_prefix, "lib"),
-        os.path.join(sys.base_prefix, "DLLs"),
-        os.path.join(sys.base_prefix, "bin"),
-    )
-    patterns = ("libtcl9*", "libtk9*", "tcl9*.dll", "tk9*.dll", "*tcl9*.dylib", "*tk9*.dylib")
-    found = {}
-    for root in roots:
-        for pattern in patterns:
-            for path in glob.glob(os.path.join(root, pattern)):
-                if os.path.isfile(path):
-                    found[os.path.basename(path)] = (path, ".")
-    return list(found.values())
-
-
-tcltk_binaries = _tcltk9_binaries()
+tcltk_binaries = tcltk9_binaries()
 
 # Our own package data (i18n catalogs) — added explicitly so the build works
 # with editable installs too.

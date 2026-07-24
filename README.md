@@ -82,21 +82,36 @@ uv run python scripts/generate_fixture.py --rows 1000000 --out big.csv
 
 ## Packaging
 
-PyInstaller builds a folder with both executables (`lsa-gui`, `lsa`):
+**Single-file executables** (every library bundled into one binary per
+front end):
 
 ```bash
 uv sync --group build
+uv run python scripts/build_bundle.py
+# -> dist/bundle/lsa-gui-<os>-<arch>[.exe] and lsa-<os>-<arch>[.exe]
+```
+
+**Folder build** (faster startup, used for releases):
+
+```bash
 uv run pyinstaller packaging/lsa.spec --noconfirm   # output in dist/lsa/
 ```
 
-`--collect-all customtkinter` (done inside the spec) is required — without it
-the CustomTkinter theme assets are missing at runtime.
+`--collect-all customtkinter` (done inside the specs) is required — without
+it the CustomTkinter theme assets are missing at runtime.  A Linux binary
+runs on distributions whose glibc is at least as new as the build machine's;
+CI builds on the oldest available runner (Ubuntu 22.04) for wide coverage.
 
 ## CI/CD
 
-- `ci.yml`: ruff + pytest on Ubuntu/Windows/macOS × Python 3.11/3.12.
-- `release.yml`: on `v*` tags, PyInstaller builds for Windows, macOS and
-  Linux are attached to the GitHub release (Windows is the priority target).
+- `ci.yml`: ruff + pytest on Ubuntu/Windows/macOS × Python 3.11/3.12, on
+  every push and pull request.
+- `build.yml`: on every pushed branch, single-file executables for Linux
+  and Windows are built and uploaded as workflow artifacts (GitHub →
+  Actions → the run → Artifacts).
+- `release.yml`: on `v*` tags, PyInstaller folder builds for Windows, macOS
+  and Linux are attached to the GitHub release (Windows is the priority
+  target).
 
 ## Architecture
 
