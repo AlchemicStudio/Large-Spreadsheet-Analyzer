@@ -116,6 +116,23 @@ def test_apply_csv_options_rejects_bad_input(make_csv) -> None:
     )
 
 
+def test_empty_quotechar_means_no_quoting(make_csv) -> None:
+    state = _csv_state(make_csv, 'a;b\n1;5" screen\n')
+    presenter = ImportPresenter(state, TR)
+    error = presenter.apply_csv_options(
+        separator=";",
+        quotechar="",
+        encoding="utf-8",
+        has_header=True,
+        empty_tokens_text="",
+    )
+    assert error is None
+    assert state.csv_options.quotechar == ""
+    rows, error = presenter.csv_preview()
+    assert error is None
+    assert rows[1] == ["1", '5" screen']
+
+
 def test_csv_preview_includes_header_and_errors(make_csv) -> None:
     state = _csv_state(make_csv)
     presenter = ImportPresenter(state, TR)

@@ -38,12 +38,17 @@ class ScanProgress:
 
 @dataclass(frozen=True, slots=True)
 class ScanSummary:
-    """Final outcome of a scan; ``cancelled`` marks partial results."""
+    """Final outcome of a scan; ``cancelled`` marks partial results.
+
+    ``malformed_rows`` counts CSV records that could not be parsed (runaway
+    quoted fields...) and were skipped so the scan could continue.
+    """
 
     rows_scanned: int
     counts: dict[str, int]
     cancelled: bool
     elapsed_seconds: float
+    malformed_rows: int = 0
 
 
 ProgressCallback = Callable[[ScanProgress], None]
@@ -84,7 +89,13 @@ def run_scan(
     if stream.width == 0:  # empty file: nothing to resolve columns against
         if progress_callback is not None:
             progress_callback(snapshot(0))
-        return ScanSummary(0, counts, cancelled=False, elapsed_seconds=0.0)
+        return ScanSummary(
+            0,
+            counts,
+            cancelled=False,
+            elapsed_seconds=0.0,
+            malformed_rows=getattr(stream, "malformed_rows", 0),
+        )
 
     compiled = compile_rules(ruleset, stream.header, stream.width)
     cache_cells = not stream.supports_offsets
@@ -123,4 +134,5 @@ def run_scan(
         counts=counts,
         cancelled=cancelled,
         elapsed_seconds=time.perf_counter() - started,
+        malformed_rows=getattr(stream, "malformed_rows", 0),
     )

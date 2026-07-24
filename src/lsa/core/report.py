@@ -120,6 +120,7 @@ class ScanReport:
     elapsed_seconds: float
     generated_at: str
     rules: tuple[RuleReport, ...]
+    malformed_rows: int = 0
 
 
 def build_report(
@@ -151,6 +152,7 @@ def build_report(
         elapsed_seconds=round(summary.elapsed_seconds, 3),
         generated_at=dt.datetime.now().astimezone().isoformat(timespec="seconds"),
         rules=tuple(rule_reports),
+        malformed_rows=summary.malformed_rows,
     )
 
 
@@ -162,6 +164,7 @@ def report_to_dict(report: ScanReport) -> dict[str, object]:
         "sheet": report.sheet,
         "rows_scanned": report.rows_scanned,
         "partial": report.partial,
+        "malformed_rows": report.malformed_rows,
         "elapsed_seconds": report.elapsed_seconds,
         "generated_at": report.generated_at,
         "rules": [

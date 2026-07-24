@@ -80,5 +80,6 @@
   "error.title": "Erro",
   "ok": "OK",
   "match.all.short": "E",
-  "match.any.short": "OU"
+  "match.any.short": "OU",
+  "run.malformed": "{count} linha(s) mal formada(s) foram ignoradas - verifique o separador e as aspas."
 }

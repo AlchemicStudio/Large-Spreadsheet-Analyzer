@@ -109,6 +109,18 @@ def test_workbook_progress_reaches_one(make_xlsx, tmp_path) -> None:
     assert snapshots[-1].fraction == 1.0
 
 
+def test_malformed_rows_reported_in_summary(make_csv, tmp_path) -> None:
+    giant = "x" * (2 * 1024 * 1024)
+    path = make_csv(f'name,email\nAna,\nBo,"{giant}\nCy,\n')
+    with (
+        CsvRowStream(path, CsvOptions()) as stream,
+        ResultStore(tmp_path / "r.sqlite3") as store,
+    ):
+        summary = run_scan(stream, RULESET, store)
+    assert summary.malformed_rows == 1
+    assert summary.counts["no-email"] == 2  # Ana and Cy still scanned
+
+
 def test_cancel_keeps_partial_results(make_csv, tmp_path) -> None:
     path = make_csv("name,email\n" + "Ana,\n" * 100)
     cancel = threading.Event()

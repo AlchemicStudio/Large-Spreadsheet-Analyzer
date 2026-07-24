@@ -13,7 +13,6 @@ import contextlib
 import csv
 import io
 import os
-import sys
 from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass, replace
@@ -24,8 +23,14 @@ from charset_normalizer import from_bytes
 
 from .rows import Row, suppress_trailing_empty
 
-# Very wide cells (embedded JSON, base64 blobs...) must not abort a scan.
-csv.field_size_limit(min(sys.maxsize, 2**31 - 1))
+# Cap a single field at 1 MB.  Far larger than any real spreadsheet cell,
+# small enough that a malformed file cannot balloon memory: a stray opening
+# quote would otherwise make csv.reader swallow the whole remainder of a
+# multi-GB file into ONE in-memory field and get the process OOM-killed.
+# Records that overflow are skipped and counted (CsvRowStream.malformed_rows),
+# and the cap also bounds how much data a runaway quote can swallow.
+_MAX_FIELD_BYTES = 1024 * 1024
+csv.field_size_limit(_MAX_FIELD_BYTES)
 
 _SNIFF_DELIMITERS = ",;\t|"
 _DETECT_SAMPLE_BYTES = 1 << 20
@@ -180,8 +185,14 @@ class CsvRowStream:
 
             self.header: list[str] | None = None
             self._pending: Row | None = None
+            self.malformed_rows = 0
             first_offset = self._lines.next_offset if self._lines is not None else None
-            first = next(self._reader, None)
+            try:
+                first = next(self._reader, None)
+            except csv.Error as exc:
+                raise ValueError(
+                    f"cannot parse the first row with these CSV settings: {exc}"
+                ) from exc
             if first is None:
                 self.width = 0
             elif self.options.has_header:
@@ -211,6 +222,15 @@ class CsvRowStream:
                 cells = next(self._reader)
             except StopIteration:
                 return
+            except csv.Error:
+                # Malformed record (usually a runaway quoted field hitting the
+                # field size cap): skip it and resume from the next line.  For
+                # a single-line record the numbering stays exact; a swallowed
+                # multi-line region can shift later numbers, but previews are
+                # still fetched by byte offset, so the shown data is right.
+                self.malformed_rows += 1
+                number += 1
+                continue
             yield Row(number, cells, offset)
             number += 1
 

@@ -175,6 +175,12 @@ def _run(args: argparse.Namespace) -> int:
             for rule in ruleset.rules:
                 count = summary.counts.get(rule.id, 0)
                 print(f"  {rule.id}: {count:,} match(es) - {rule.label}")
+            if summary.malformed_rows:
+                print(
+                    f"warning: {summary.malformed_rows:,} malformed row(s) could not "
+                    "be parsed and were skipped (check the separator/quote settings)",
+                    file=sys.stderr,
+                )
 
             if args.report or args.export_matches:
                 if args.report:

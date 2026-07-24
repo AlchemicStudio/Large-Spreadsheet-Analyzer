@@ -80,5 +80,6 @@
   "error.title": "Error",
   "ok": "Aceptar",
   "match.all.short": "Y",
-  "match.any.short": "O"
+  "match.any.short": "O",
+  "run.malformed": "{count} fila(s) mal formada(s) se omitieron - revise el separador y las comillas."
 }

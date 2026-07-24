@@ -9,9 +9,13 @@ RAM usage flat no matter how many rows match.
 
 from __future__ import annotations
 
+import contextlib
 import json
+import os
 import sqlite3
+import sys
 import tempfile
+import time
 from collections.abc import Iterable, Iterator
 from pathlib import Path
 from typing import NamedTuple
@@ -36,6 +40,42 @@ class StoredMatch(NamedTuple):
     cells: list[str] | None
 
 
+_TEMP_PREFIX = "lsa-results-"
+_TEMP_SUFFIX = ".sqlite3"
+_STALE_AFTER_SECONDS = 2 * 24 * 3600
+_stale_cleanup_done = False
+
+
+def _default_store_dir() -> Path | None:
+    """Directory for temporary result stores.
+
+    On most Linux systems the default temp dir (/tmp) is tmpfs, i.e. backed
+    by RAM: a scan producing tens of millions of matches would silently
+    balloon memory and can get the application OOM-killed on a large file.
+    /var/tmp is disk-backed by convention, so prefer it there.  Windows and
+    macOS temp dirs are disk-backed already (None = tempfile's default).
+    """
+    if sys.platform.startswith("linux"):
+        var_tmp = Path("/var/tmp")
+        if var_tmp.is_dir() and os.access(var_tmp, os.W_OK):
+            return var_tmp
+    return None
+
+
+def _cleanup_stale_stores(directory: Path) -> None:
+    """Best-effort removal of result stores leaked by killed/crashed runs."""
+    global _stale_cleanup_done
+    if _stale_cleanup_done:
+        return
+    _stale_cleanup_done = True
+    cutoff = time.time() - _STALE_AFTER_SECONDS
+    with contextlib.suppress(OSError):
+        for leftover in directory.glob(f"{_TEMP_PREFIX}*{_TEMP_SUFFIX}"):
+            with contextlib.suppress(OSError):
+                if leftover.stat().st_mtime < cutoff:
+                    leftover.unlink()
+
+
 class ResultStore:
     """Result storage for one scan run.
 
@@ -46,8 +86,15 @@ class ResultStore:
 
     def __init__(self, db_path: str | Path | None = None):
         if db_path is None:
+            store_dir = _default_store_dir()
+            _cleanup_stale_stores(
+                store_dir if store_dir is not None else Path(tempfile.gettempdir())
+            )
             handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - we only want the name
-                prefix="lsa-results-", suffix=".sqlite3", delete=False
+                prefix=_TEMP_PREFIX,
+                suffix=_TEMP_SUFFIX,
+                dir=None if store_dir is None else str(store_dir),
+                delete=False,
             )
             handle.close()
             db_path = handle.name

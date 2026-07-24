@@ -80,5 +80,6 @@
   "error.title": "Error",
   "ok": "OK",
   "match.all.short": "AND",
-  "match.any.short": "OR"
+  "match.any.short": "OR",
+  "run.malformed": "{count} malformed row(s) were skipped - check the separator and quote settings."
 }

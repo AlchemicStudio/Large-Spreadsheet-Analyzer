@@ -123,6 +123,33 @@ def test_utf16_be_without_bom_decodes_correctly(make_csv) -> None:
         assert next(iter(stream.rows())).cells == ["Ana", "a@b.c"]
 
 
+def test_runaway_quote_is_bounded_and_skipped(make_csv) -> None:
+    # An unclosed quote used to swallow the whole remainder of the file into
+    # one in-memory field (OOM on multi-GB files).  With the field size cap
+    # the record is skipped, counted, and the scan resumes on the next line.
+    giant = "x" * (2 * 1024 * 1024)
+    path = make_csv(f'a;b\n1;ok\n2;"{giant}\n3;fine\n')
+    with CsvRowStream(path, CsvOptions(separator=";")) as stream:
+        rows = list(stream.rows())
+        assert stream.malformed_rows == 1
+    assert [r.cells for r in rows] == [["1", "ok"], ["3", "fine"]]
+    # single-line malformed record: numbering stays exact for later rows
+    assert [r.number for r in rows] == [2, 4]
+
+
+def test_unparseable_first_row_raises_clean_error(make_csv) -> None:
+    giant = "x" * (2 * 1024 * 1024)
+    path = make_csv(f'"{giant}\n1;ok\n')
+    with pytest.raises(ValueError, match="cannot parse the first row"):
+        CsvRowStream(path, CsvOptions(separator=";"))
+
+
+def test_no_quoting_mode_treats_quotes_literally(make_csv) -> None:
+    path = make_csv('a;b\n1;5" screen\n"2;raw\n')
+    with CsvRowStream(path, CsvOptions(separator=";", quotechar="")) as stream:
+        assert [r.cells for r in stream.rows()] == [["1", '5" screen'], ['"2', "raw"]]
+
+
 def test_cr_only_line_endings_fall_back(make_csv) -> None:
     path = make_csv("name,email\rAna,a@b.c\rBo,b@c.d\r")
     with CsvRowStream(path, CsvOptions()) as stream:

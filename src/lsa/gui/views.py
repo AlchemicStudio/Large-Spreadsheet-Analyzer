@@ -304,7 +304,7 @@ class CsvImportDialog(ctk.CTkToplevel):
         separator = _SEPARATOR_CHOICES.get(self.separator_var.get(), self.separator_var.get())
         return CsvOptions(
             separator=separator,
-            quotechar=self.quote_var.get() or '"',
+            quotechar=self.quote_var.get(),  # empty = no quoting in this file
             encoding=self.encoding_var.get().strip() or "utf-8",
             has_header=bool(self.header_var.get()),
         )
@@ -668,15 +668,20 @@ class RunStep(StepFrame):
         self.cancel_button.configure(state="disabled")
 
     def _poll(self) -> None:
+        # Coalesce progress: on a fast scan dozens of snapshots can arrive per
+        # tick; only the newest one needs to be rendered.
+        latest_progress = None
         for message in self.controller.drain():
             if message.kind == "progress":
-                self._on_progress(message.payload)
+                latest_progress = message.payload
             elif message.kind == "done":
                 self._on_done()
                 return
             else:
                 self._on_error(str(message.payload))
                 return
+        if latest_progress is not None:
+            self._on_progress(latest_progress)
         self._poll_job = self.after(100, self._poll)
 
     def _on_progress(self, progress) -> None:
@@ -716,9 +721,10 @@ class RunStep(StepFrame):
         self.progress.set(1.0)
         self.start_button.configure(state="normal")
         self.cancel_button.configure(state="disabled")
-        self.status.configure(
-            text=self.tr("run.cancelled") if summary.cancelled else self.tr("run.done")
-        )
+        status = self.tr("run.cancelled") if summary.cancelled else self.tr("run.done")
+        if summary.malformed_rows:
+            status += " " + self.tr("run.malformed", count=f"{summary.malformed_rows:,}")
+        self.status.configure(text=status)
         for rule_id, count in summary.counts.items():
             label = self.counter_labels.get(rule_id)
             if label is not None:

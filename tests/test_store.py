@@ -1,7 +1,12 @@
 """Result store: inserts, counts, pagination, streaming iteration."""
 
 import json
+import os
+import sys
+import time
 from pathlib import Path
+
+import pytest
 
 from lsa.core.store import ResultStore, StoredMatch
 
@@ -62,3 +67,37 @@ def test_temp_file_store_cleans_up_after_close() -> None:
     assert db_path.exists()
     store.close()
     assert not db_path.exists()
+
+
+def test_temp_store_avoids_tmpfs_on_linux() -> None:
+    if not sys.platform.startswith("linux"):
+        pytest.skip("Linux-specific: /tmp is commonly tmpfs there")
+    store = ResultStore()
+    try:
+        # /var/tmp is disk-backed; /tmp would put millions of matches in RAM.
+        assert str(store.db_path.parent) == "/var/tmp"
+    finally:
+        store.close()
+
+
+def test_stale_leaked_stores_are_removed(tmp_path: Path, monkeypatch) -> None:
+    import lsa.core.store as store_module
+
+    monkeypatch.setattr(store_module, "_default_store_dir", lambda: tmp_path)
+    monkeypatch.setattr(store_module, "_stale_cleanup_done", False)
+    old = tmp_path / "lsa-results-old.sqlite3"
+    old.write_bytes(b"x")
+    os.utime(old, (time.time() - 3 * 24 * 3600, time.time() - 3 * 24 * 3600))
+    fresh = tmp_path / "lsa-results-fresh.sqlite3"
+    fresh.write_bytes(b"x")
+    unrelated = tmp_path / "keep.sqlite3"
+    unrelated.write_bytes(b"x")
+
+    store = ResultStore()
+    try:
+        assert not old.exists()
+        assert fresh.exists()
+        assert unrelated.exists()
+        assert store.db_path.parent == tmp_path
+    finally:
+        store.close()

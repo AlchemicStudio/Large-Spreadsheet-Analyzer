@@ -35,6 +35,14 @@ Nothing ever leaves your machine.
 - **XLS/ODS** cannot be read row-by-row: python-calamine materializes the
   sheet in memory. The app warns when opening large XLS/ODS files — convert
   to CSV or XLSX for best results.
+- **Malformed CSV**: a single field is capped at 1 MB, so a stray opening
+  quote in a broken file cannot swallow gigabytes into memory. Records that
+  cannot be parsed are skipped, counted, and reported ("N malformed rows
+  skipped"); set the quote character to *empty* in the import options if
+  your file uses no quoting at all.
+- On Linux the temporary result database is kept in `/var/tmp` (disk) rather
+  than `/tmp`, which is usually RAM-backed tmpfs — so scans with tens of
+  millions of matches don't consume RAM.
 
 ## Development
 
