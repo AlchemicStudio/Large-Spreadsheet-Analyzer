@@ -84,5 +84,7 @@
   "run.malformed": "{count} malformed row(s) were skipped - check the separator and quote settings.",
   "cond.type.is_duplicate": "is duplicated in several rows",
   "col.optional": "Column (optional)",
-  "run.finalizing": "Resolving duplicate groups..."
+  "run.finalizing": "Resolving duplicate groups...",
+  "report.group": "Group",
+  "report.group.unique": "unique"
 }

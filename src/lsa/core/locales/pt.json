@@ -84,5 +84,7 @@
   "run.malformed": "{count} linha(s) mal formada(s) foram ignoradas - verifique o separador e as aspas.",
   "cond.type.is_duplicate": "está duplicada em várias linhas",
   "col.optional": "Coluna (opcional)",
-  "run.finalizing": "A identificar grupos de duplicados..."
+  "run.finalizing": "A identificar grupos de duplicados...",
+  "report.group": "Grupo",
+  "report.group.unique": "único"
 }

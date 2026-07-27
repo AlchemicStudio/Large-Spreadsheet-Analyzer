@@ -27,14 +27,19 @@ CREATE TABLE IF NOT EXISTS matches (
     byte_offset INTEGER,
     cells      TEXT,
     group_key  TEXT,
+    sub_rank   INTEGER,
+    sub_key    TEXT,
     PRIMARY KEY (rule_id, row_number)
 ) WITHOUT ROWID;
--- Pagination sorts by (group_key, row_number); without this index every
--- report page would re-sort the whole (possibly multi-million row) result.
-CREATE INDEX IF NOT EXISTS idx_matches_order ON matches (rule_id, group_key, row_number);
+-- Pagination sorts by (group_key, sub_rank, sub_key, row_number); without
+-- this index every report page would re-sort the whole (possibly
+-- multi-million row) result.
+CREATE INDEX IF NOT EXISTS idx_matches_order
+    ON matches (rule_id, group_key, sub_rank, sub_key, row_number);
 CREATE TABLE IF NOT EXISTS dup_entries (
     cond_id    TEXT    NOT NULL,
     key        TEXT    NOT NULL,
+    right_key  TEXT    NOT NULL,
     row_number INTEGER NOT NULL,
     byte_offset INTEGER,
     cells      TEXT,
@@ -48,6 +53,10 @@ class StoredMatch(NamedTuple):
 
     ``group_key`` is set for is_duplicate matches: rows sharing it form one
     duplicate group (pagination orders by it so groups stay together).
+    Within a duplicate group, ``sub_key`` holds the content of the cells to
+    the right of the key columns when at least two rows share it; it is
+    None for rows whose right-hand cells are unique (sorted last in their
+    group) and for per-row-condition matches.
     """
 
     rule_id: str
@@ -55,6 +64,7 @@ class StoredMatch(NamedTuple):
     byte_offset: int | None
     cells: list[str] | None
     group_key: str | None = None
+    sub_key: str | None = None
 
 
 _TEMP_PREFIX = "lsa-results-"
@@ -147,17 +157,19 @@ class ResultStore:
         )
 
     def add_dup_entries(
-        self, batch: Iterable[tuple[str, str, int, int | None, str | None, int]]
+        self, batch: Iterable[tuple[str, str, str, int, int | None, str | None, int]]
     ) -> None:
-        """Insert ``(cond_id, key, row_number, byte_offset, cells_json, candidate)``.
+        """Insert ``(cond_id, key, right_key, row_number, byte_offset, cells_json, candidate)``.
 
         One entry per data row per is_duplicate condition; ``candidate``
         records whether the row passed the rule's per-row conditions
-        (meaningful for AND rules only).
+        (meaningful for AND rules only); ``right_key`` is the row content to
+        the right of the key columns, used for report sub-grouping.
         """
         self._conn.executemany(
-            "INSERT INTO dup_entries (cond_id, key, row_number, byte_offset, cells, candidate) "
-            "VALUES (?, ?, ?, ?, ?, ?)",
+            "INSERT INTO dup_entries "
+            "(cond_id, key, right_key, row_number, byte_offset, cells, candidate) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             batch,
         )
 
@@ -169,38 +181,54 @@ class ResultStore:
         (candidate=1) and be duplicated for *every* condition.  ``match='any'``:
         any duplicated condition matches the row, joining the per-row matches
         already inserted during the pass.
+
+        Within each duplicate group, matches are sub-grouped by the row
+        content to the right of the key columns: rows sharing that content
+        get ``sub_rank=0`` and ``sub_key`` set (one sub-group per identical
+        content); rows whose right-hand content is unique in their group get
+        ``sub_rank=1`` (sorted last).  With several is_duplicate conditions
+        in one AND rule, the sub-grouping follows the first condition.
         """
         if not cond_ids:
             return
         # Bulk phase over potentially tens of millions of rows: a large page
-        # cache pays for itself; the index makes the GROUP BY a straight
-        # index scan; ORDER BY row_number keeps the matches PK appends mostly
-        # sequential.
+        # cache pays for itself; the index makes the GROUP BYs straight
+        # index scans; ORDER BY row_number keeps the matches PK appends
+        # mostly sequential.
         self._conn.execute("PRAGMA cache_size = -131072")  # 128 MB
         self._conn.execute(
-            "CREATE INDEX IF NOT EXISTS idx_dup_entries ON dup_entries (cond_id, key)"
+            "CREATE INDEX IF NOT EXISTS idx_dup_entries ON dup_entries (cond_id, key, right_key)"
         )
         duplicated = (
             "SELECT key FROM dup_entries WHERE cond_id = ? GROUP BY key HAVING COUNT(*) > 1"
         )
+
+        def insert_sql(candidate_filter: str) -> str:
+            right_counts = (
+                "SELECT key, right_key, COUNT(*) AS n FROM dup_entries "
+                f"WHERE cond_id = ?{candidate_filter} GROUP BY key, right_key"
+            )
+            return (
+                "INSERT OR REPLACE INTO matches "
+                "(rule_id, row_number, byte_offset, cells, group_key, sub_rank, sub_key) "
+                "SELECT ?, d.row_number, d.byte_offset, d.cells, d.key, "
+                "CASE WHEN rc.n > 1 THEN 0 ELSE 1 END, "
+                "CASE WHEN rc.n > 1 THEN d.right_key ELSE NULL END "
+                f"FROM dup_entries d JOIN ({right_counts}) rc "
+                "ON rc.key = d.key AND rc.right_key = d.right_key "
+                f"WHERE d.cond_id = ? AND d.key IN ({duplicated})"
+            )
+
         if match == "any":
             for cond_id in cond_ids:
                 self._conn.execute(
-                    "INSERT OR REPLACE INTO matches "
-                    "(rule_id, row_number, byte_offset, cells, group_key) "
-                    "SELECT ?, row_number, byte_offset, cells, key FROM dup_entries "
-                    f"WHERE cond_id = ? AND key IN ({duplicated}) ORDER BY row_number",
-                    (rule_id, cond_id, cond_id),
+                    insert_sql("") + " ORDER BY d.row_number",
+                    (rule_id, cond_id, cond_id, cond_id),
                 )
         else:
             first, rest = cond_ids[0], cond_ids[1:]
-            sql = (
-                "INSERT OR REPLACE INTO matches "
-                "(rule_id, row_number, byte_offset, cells, group_key) "
-                "SELECT ?, d.row_number, d.byte_offset, d.cells, d.key FROM dup_entries d "
-                f"WHERE d.cond_id = ? AND d.candidate = 1 AND d.key IN ({duplicated})"
-            )
-            params: list[object] = [rule_id, first, first]
+            sql = insert_sql(" AND candidate = 1") + " AND d.candidate = 1"
+            params: list[object] = [rule_id, first, first, first]
             for cond_id in rest:
                 sql += (
                     " AND d.row_number IN (SELECT row_number FROM dup_entries "
@@ -230,21 +258,25 @@ class ResultStore:
         return {rule_id: int(n) for rule_id, n in rows}
 
     @staticmethod
-    def _to_match(row: tuple[str, int, int | None, str | None, str | None]) -> StoredMatch:
-        rule_id, row_number, byte_offset, cells_json, group_key = row
+    def _to_match(
+        row: tuple[str, int, int | None, str | None, str | None, str | None],
+    ) -> StoredMatch:
+        rule_id, row_number, byte_offset, cells_json, group_key, sub_key = row
         cells = None if cells_json is None else json.loads(cells_json)
-        return StoredMatch(rule_id, row_number, byte_offset, cells, group_key)
+        return StoredMatch(rule_id, row_number, byte_offset, cells, group_key, sub_key)
 
-    # Duplicate groups must stay together in the report.  SQLite sorts NULL
-    # first, so per-row-only matches come before the grouped ones; for plain
-    # rules every group_key is NULL and this is plain row order.  The order
+    # Duplicate groups must stay together in the report; inside a group the
+    # identical right-hand sub-groups come first (sub_rank 0, by sub_key)
+    # and unique-right rows last (sub_rank 1).  SQLite sorts NULL first, so
+    # per-row-only matches precede the grouped ones; for plain rules every
+    # grouping column is NULL and this is plain row order.  The order
     # matches idx_matches_order exactly, so pagination never sorts.
-    _ORDER = "ORDER BY group_key, row_number"
+    _ORDER = "ORDER BY group_key, sub_rank, sub_key, row_number"
 
     def get_page(self, rule_id: str, offset: int, limit: int) -> list[StoredMatch]:
         """Matches of one rule, paginated (duplicate groups kept together)."""
         rows = self._conn.execute(
-            "SELECT rule_id, row_number, byte_offset, cells, group_key FROM matches "
+            "SELECT rule_id, row_number, byte_offset, cells, group_key, sub_key FROM matches "
             f"WHERE rule_id = ? {self._ORDER} LIMIT ? OFFSET ?",
             (rule_id, limit, offset),
         ).fetchall()
@@ -253,7 +285,7 @@ class ResultStore:
     def iter_matches(self, rule_id: str) -> Iterator[StoredMatch]:
         """Stream all matches of one rule (for exports), groups together."""
         cursor = self._conn.execute(
-            "SELECT rule_id, row_number, byte_offset, cells, group_key FROM matches "
+            "SELECT rule_id, row_number, byte_offset, cells, group_key, sub_key FROM matches "
             f"WHERE rule_id = ? {self._ORDER}",
             (rule_id,),
         )

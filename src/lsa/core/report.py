@@ -193,6 +193,19 @@ def safe_filename(name: str) -> str:
     return cleaned or "rule"
 
 
+def format_sub_key(match: StoredMatch, unique_label: str) -> str:
+    """Human-readable group cell for one match of a duplicate rule.
+
+    Named sub-group -> its right-hand content (";"-joined); unique
+    right-hand row -> ``unique_label``; per-row-condition match -> "".
+    """
+    if match.group_key is None:
+        return ""
+    if match.sub_key is None:
+        return unique_label
+    return match.sub_key.replace("\x1f", ";")
+
+
 def export_rule_matches(
     store: ResultStore,
     rule_id: str,
@@ -201,24 +214,39 @@ def export_rule_matches(
     *,
     header: list[str] | None,
     width: int,
+    include_group: bool = False,
+    unique_label: str = "unique",
 ) -> int:
     """Export all matches of one rule to a CSV file; returns the match count.
 
     The output has a ``row_number`` column followed by the original row.  When
     the source file has no header, columns are titled by letter (A, B, ...).
+    With ``include_group`` (duplicate rules) a ``group`` column is added,
+    holding each row's sub-group content (or ``unique_label``).
     """
     columns = header if header is not None else [index_to_letter(i) for i in range(width)]
     written = 0
     with open(out_path, "w", encoding="utf-8", newline="") as f:
         writer = csv.writer(f)
-        writer.writerow(["row_number", *columns])
+        head = ["row_number", *columns]
+        if include_group:
+            head.insert(1, "group")
+        writer.writerow(head)
         for match in store.iter_matches(rule_id):
             cells = source.cells_for(match)
             if len(cells) < width:  # pad ragged rows; never truncate wide ones
                 cells = list(cells) + [""] * (width - len(cells))
-            writer.writerow([match.row_number, *cells])
+            row = [match.row_number, *cells]
+            if include_group:
+                row.insert(1, format_sub_key(match, unique_label))
+            writer.writerow(row)
             written += 1
     return written
+
+
+def rule_has_groups(rule) -> bool:
+    """Whether a rule's report uses duplicate grouping."""
+    return any(cond.type == "is_duplicate" for cond in rule.conditions)
 
 
 def export_all_matches(
@@ -229,6 +257,7 @@ def export_all_matches(
     *,
     header: list[str] | None,
     width: int,
+    unique_label: str = "unique",
 ) -> dict[str, Path]:
     """Export every rule's matches as ``<rule_id>.csv`` inside ``out_dir``."""
     out = Path(out_dir)
@@ -243,6 +272,15 @@ def export_all_matches(
             suffix += 1
         used_names.add(name)
         path = out / f"{name}.csv"
-        export_rule_matches(store, rule.id, source, path, header=header, width=width)
+        export_rule_matches(
+            store,
+            rule.id,
+            source,
+            path,
+            header=header,
+            width=width,
+            include_group=rule_has_groups(rule),
+            unique_label=unique_label,
+        )
         files[rule.id] = path
     return files

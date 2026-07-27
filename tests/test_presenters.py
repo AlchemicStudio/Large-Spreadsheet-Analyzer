@@ -452,6 +452,50 @@ def test_scan_controller_reports_errors(tmp_path) -> None:
     assert controller.store is None
 
 
+def test_report_presenter_group_column(make_csv, tmp_path) -> None:
+    controller = ScanController()
+    path = make_csv("id,code,val\n1,A,x\n2,A,x\n3,A,y\n4,B,z\n")
+    ruleset = build_ruleset(
+        [
+            RuleDraft(
+                id="dup",
+                label="dup",
+                match="all",
+                conditions=[
+                    ConditionDraft(type="is_duplicate", column_by="header", column_value="code")
+                ],
+            )
+        ],
+        Settings(),
+    )
+    controller.start(
+        path=path, ruleset=ruleset, csv_options=CsvOptions(), sheet=None, has_header=True
+    )
+    controller.join(timeout=10)
+    controller.drain()
+    presenter = ReportPresenter(
+        store=controller.store,
+        ruleset=ruleset,
+        summary=controller.summary,
+        file=path,
+        sheet=None,
+        header=controller.header,
+        width=controller.width,
+        csv_options=CsvOptions(),
+        tr=TR,
+        sample_size=10,
+    )
+    try:
+        assert presenter.has_groups("dup")
+        assert presenter.table_columns("dup") == ["Row", "Group", "id", "code", "val"]
+        rows = presenter.page_rows("dup")
+        # rows 2,3 share right-hand "x"; row 4 (val=y) is unique in key A
+        assert [(r[0], r[1]) for r in rows] == [("2", "x"), ("3", "x"), ("4", "unique")]
+    finally:
+        presenter.close()
+        controller.discard_results()
+
+
 def test_report_presenter_exports(make_csv, tmp_path) -> None:
     controller, state = _scan_controller(make_csv)
     ruleset = build_ruleset(state.rule_drafts, state.settings)

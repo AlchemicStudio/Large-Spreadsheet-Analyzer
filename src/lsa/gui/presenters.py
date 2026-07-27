@@ -23,6 +23,8 @@ from lsa.core.report import (
     build_report,
     export_all_matches,
     export_rule_matches,
+    format_sub_key,
+    rule_has_groups,
     save_report,
 )
 from lsa.core.rows import FileFormat, UnsupportedFormatError, detect_format
@@ -455,6 +457,17 @@ class ReportPresenter:
                 return rule.label
         return rule_id
 
+    def has_groups(self, rule_id: str) -> bool:
+        """Whether this rule's matches carry duplicate-group information."""
+        return any(rule_has_groups(rule) for rule in self._ruleset.rules if rule.id == rule_id)
+
+    def table_columns(self, rule_id: str) -> list[str]:
+        """Column titles for the report table of one rule."""
+        columns = [self._tr("report.row_number")]
+        if self.has_groups(rule_id):
+            columns.append(self._tr("report.group"))
+        return columns + self.columns()
+
     def match_count(self, rule_id: str) -> int:
         return self._summary.counts.get(rule_id, 0)
 
@@ -473,13 +486,22 @@ class ReportPresenter:
         return self._pagers[rule_id].has_next
 
     def page_rows(self, rule_id: str) -> list[list[str]]:
-        """Display rows for the current page: [row_number, cell, cell, ...]."""
+        """Display rows for the current page: [row_number, (group,) cell, ...].
+
+        For duplicate rules a group column follows the row number: the shared
+        right-hand content for grouped rows, or the localized "unique" label.
+        """
         width = self._width
+        grouped = self.has_groups(rule_id)
+        unique_label = self._tr("report.group.unique")
         rows = []
         for match in self._pagers[rule_id].page():
             cells = self._source.cells_for(match)
             padded = list(cells[:width]) + [""] * max(0, width - len(cells))
-            rows.append([str(match.row_number), *padded])
+            row = [str(match.row_number), *padded]
+            if grouped:
+                row.insert(1, format_sub_key(match, unique_label))
+            rows.append(row)
         return rows
 
     def next_page(self, rule_id: str) -> None:
@@ -501,6 +523,8 @@ class ReportPresenter:
             out_path,
             header=self._header,
             width=self._width,
+            include_group=self.has_groups(rule_id),
+            unique_label=self._tr("report.group.unique"),
         )
         return self._tr("report.export.done", path=out_path)
 
@@ -512,6 +536,7 @@ class ReportPresenter:
             out_dir,
             header=self._header,
             width=self._width,
+            unique_label=self._tr("report.group.unique"),
         )
         return self._tr("report.export.done", path=out_dir)
 

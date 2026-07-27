@@ -18,9 +18,14 @@ Nothing ever leaves your machine.
   `docs/rules.example.json`).
 - **Duplicate detection**: `is_duplicate` takes 1..n key columns (the GUI
   edits up to 2; more via JSON); matched rows are shown and exported
-  *grouped* — all rows sharing the same key together. Blank cells count as
-  equal content; add a `not_empty` condition to the rule to exclude them.
-  The duplicate index is built on disk (SQLite), never in RAM.
+  *grouped* — all rows sharing the same key together. Within each key
+  group, rows are further sub-grouped by the content of the cells to the
+  right of the key columns: one sub-group per identical right-hand
+  content, then a final "unique" set for rows whose right-hand cells match
+  no other row (the report and CSV exports carry a `Group` column showing
+  this). Blank cells count as equal content; add a `not_empty` condition
+  to the rule to exclude them. The duplicate index is built on disk
+  (SQLite), never in RAM.
 - **GUI**: a five-step CustomTkinter wizard (file → import options → rules →
   run → report) translated into English, French, German, Spanish and
   Portuguese (pt-PT). Scans run in an isolated scan *process* with live

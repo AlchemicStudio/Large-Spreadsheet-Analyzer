@@ -868,7 +868,7 @@ class ReportStep(StepFrame):
 
     def _refresh_section(self, rule_id: str) -> None:
         presenter = self.presenter
-        columns = [self.tr("report.row_number"), *presenter.columns()]
+        columns = presenter.table_columns(rule_id)
         self._tables[rule_id].set_data(columns, presenter.page_rows(rule_id))
         self._positions[rule_id].configure(text=presenter.position_text(rule_id))
         prev_button, next_button = self._nav_buttons[rule_id]

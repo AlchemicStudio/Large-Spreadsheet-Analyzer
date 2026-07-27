@@ -109,7 +109,7 @@ def run_scan(
     rows_processed = 0
     cancelled = False
     batch: list[tuple[str, int, int | None, str | None]] = []
-    dup_batch: list[tuple[str, str, int, int | None, str | None, int]] = []
+    dup_batch: list[tuple[str, str, str, int, int | None, str | None, int]] = []
     for row in stream.rows():
         if cancel is not None and cancel.is_set():
             cancelled = True
@@ -142,6 +142,7 @@ def run_scan(
                 entry = (
                     cond.cond_id,
                     cond.key_of(cells),
+                    cond.right_key_of(cells),
                     row.number,
                     row.offset,
                     cells_json,

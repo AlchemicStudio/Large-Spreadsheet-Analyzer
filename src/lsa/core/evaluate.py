@@ -24,10 +24,16 @@ _KEY_SEPARATOR = "\x1f"
 
 
 class DuplicateCondition(NamedTuple):
-    """One is_duplicate condition bound to the file layout."""
+    """One is_duplicate condition bound to the file layout.
+
+    ``right_key_of`` extracts the row's cells to the right of the rightmost
+    key column: matched rows are sub-grouped by that content in the report
+    (identical right-hand rows together, unique ones in a final group).
+    """
 
     cond_id: str
     key_of: KeyExtractor
+    right_key_of: KeyExtractor
 
 
 class CompiledRule(NamedTuple):
@@ -114,17 +120,26 @@ def compile_rules(ruleset: RuleSet, header: list[str] | None, width: int) -> Com
         return lambda cells: not empty(cells)
 
     def compile_duplicate(rule_id: str, index: int, cond: Condition) -> DuplicateCondition:
-        getters = tuple(
-            transformed_getter(ref.resolve(header, width)) for ref in cond.columns or ()
-        )
+        indexes = tuple(ref.resolve(header, width) for ref in cond.columns or ())
+        getters = tuple(transformed_getter(i) for i in indexes)
+        right_start = max(indexes) + 1
+
         if len(getters) == 1:
-            single = getters[0]
-            return DuplicateCondition(f"{rule_id}{_KEY_SEPARATOR}{index}", single)
+            key_of: KeyExtractor = getters[0]
+        else:
 
-        def key_of(cells: Sequence[str], _g: tuple[CellGetter, ...] = getters) -> str:
-            return _KEY_SEPARATOR.join(g(cells) for g in _g)
+            def key_of(cells: Sequence[str], _g: tuple[CellGetter, ...] = getters) -> str:
+                return _KEY_SEPARATOR.join(g(cells) for g in _g)
 
-        return DuplicateCondition(f"{rule_id}{_KEY_SEPARATOR}{index}", key_of)
+        def right_key_of(cells: Sequence[str], _start: int = right_start) -> str:
+            parts = []
+            for value in cells[_start:]:
+                if trim:
+                    value = value.strip()
+                parts.append(value if fold is None else fold(value))
+            return _KEY_SEPARATOR.join(parts)
+
+        return DuplicateCondition(f"{rule_id}{_KEY_SEPARATOR}{index}", key_of, right_key_of)
 
     compiled: list[CompiledRule] = []
     for rule in ruleset.rules:
