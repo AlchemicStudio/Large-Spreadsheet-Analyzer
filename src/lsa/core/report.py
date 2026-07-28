@@ -99,14 +99,72 @@ class MatchPager:
         return f"{first}-{last} of {self.total}"
 
 
+class GroupPager:
+    """Pagination over the duplicate-group *blocks* of one rule.
+
+    Each block is one distinct key combination (plus, when present, a first
+    block for matches that belong to no group — per-row-condition matches
+    of OR rules).  ``page()`` yields ``(group_key_or_None, row_count)``.
+    """
+
+    def __init__(self, store: ResultStore, rule_id: str, page_size: int = 5):
+        self._store = store
+        self.rule_id = rule_id
+        self.page_size = max(1, page_size)
+        self.ungrouped = store.ungrouped_count(rule_id)
+        self.total = store.group_count(rule_id) + (1 if self.ungrouped else 0)
+        self.offset = 0
+
+    def page(self) -> list[tuple[str | None, int]]:
+        """The current page of blocks."""
+        blocks: list[tuple[str | None, int]] = []
+        group_offset = self.offset
+        remaining = self.page_size
+        if self.ungrouped:
+            if self.offset == 0:
+                blocks.append((None, self.ungrouped))
+                remaining -= 1
+            else:
+                group_offset -= 1
+        blocks.extend(self._store.get_group_page(self.rule_id, group_offset, remaining))
+        return blocks
+
+    @property
+    def has_prev(self) -> bool:
+        return self.offset > 0
+
+    @property
+    def has_next(self) -> bool:
+        return self.offset + self.page_size < self.total
+
+    def next(self) -> list[tuple[str | None, int]]:
+        if self.has_next:
+            self.offset += self.page_size
+        return self.page()
+
+    def prev(self) -> list[tuple[str | None, int]]:
+        self.offset = max(0, self.offset - self.page_size)
+        return self.page()
+
+
+def format_group_key(group_key: str, separator: str = ";") -> str:
+    """Display form of a duplicate key (multi-column keys joined)."""
+    return group_key.replace("\x1f", separator)
+
+
 @dataclass(frozen=True, slots=True)
 class RuleReport:
-    """Per-rule section of the report."""
+    """Per-rule section of the report.
+
+    ``group_count`` is only set for rules with duplicate detection: the
+    number of distinct key combinations found.
+    """
 
     rule_id: str
     label: str
     match_count: int
     sample_row_numbers: tuple[int, ...]
+    group_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +200,7 @@ def build_report(
                 label=rule.label,
                 match_count=summary.counts.get(rule.id, 0),
                 sample_row_numbers=tuple(m.row_number for m in sample),
+                group_count=store.group_count(rule.id) if rule_has_groups(rule) else None,
             )
         )
     return ScanReport(
@@ -173,6 +232,7 @@ def report_to_dict(report: ScanReport) -> dict[str, object]:
                 "label": r.label,
                 "match_count": r.match_count,
                 "sample_row_numbers": list(r.sample_row_numbers),
+                **({} if r.group_count is None else {"group_count": r.group_count}),
             }
             for r in report.rules
         ],
@@ -230,7 +290,9 @@ def export_rule_matches(
         writer = csv.writer(f)
         head = ["row_number", *columns]
         if include_group:
-            head.insert(1, "group")
+            # duplicate_key identifies the block (one per key combination),
+            # group the right-hand sub-group inside it.
+            head[1:1] = ["duplicate_key", "group"]
         writer.writerow(head)
         for match in store.iter_matches(rule_id):
             cells = source.cells_for(match)
@@ -238,7 +300,8 @@ def export_rule_matches(
                 cells = list(cells) + [""] * (width - len(cells))
             row = [match.row_number, *cells]
             if include_group:
-                row.insert(1, format_sub_key(match, unique_label))
+                key = "" if match.group_key is None else format_group_key(match.group_key)
+                row[1:1] = [key, format_sub_key(match, unique_label)]
             writer.writerow(row)
             written += 1
     return written

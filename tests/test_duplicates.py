@@ -269,9 +269,76 @@ def test_export_includes_group_column(make_csv, tmp_path) -> None:
             )
     with open(out, encoding="utf-8", newline="") as f:
         rows = list(csv_module.reader(f))
-    assert rows[0][:2] == ["row_number", "group"]
-    assert [r[1] for r in rows[1:]] == ["1;2;3"] * 3 + ["3;3;8"] * 2 + ["unique"] * 3
-    assert rows[1][2] == "92837"  # full original row follows the group column
+    assert rows[0][:3] == ["row_number", "duplicate_key", "group"]
+    assert [r[1] for r in rows[1:]] == ["AMM;O009KH"] * 8  # the block identity
+    assert [r[2] for r in rows[1:]] == ["1;2;3"] * 3 + ["3;3;8"] * 2 + ["unique"] * 3
+    assert rows[1][3] == "92837"  # full original row follows the group columns
+
+
+def test_group_level_queries_and_pager(make_csv, tmp_path) -> None:
+    from lsa.core.report import GroupPager
+
+    path = make_csv("id,code\n1,A\n2,A\n3,B\n4,B\n5,C\n6,C\n7,C\n8,D\n")
+    with (
+        CsvRowStream(path, CsvOptions()) as stream,
+        ResultStore(tmp_path / "r.sqlite3") as store,
+    ):
+        _scan(stream, _dup_rule(ColumnRef("header", "code")), store=store)
+        assert store.group_count("dup") == 3  # A, B, C (D is unique)
+        assert store.ungrouped_count("dup") == 0
+        assert store.get_group_page("dup", 0, 2) == [("A", 2), ("B", 2)]
+        assert store.get_group_page("dup", 2, 2) == [("C", 3)]
+        assert [m.row_number for m in store.get_group_rows("dup", "C", 2)] == [6, 7]
+
+        pager = GroupPager(store, "dup", page_size=2)
+        assert pager.total == 3
+        assert [key for key, _n in pager.page()] == ["A", "B"]
+        assert pager.has_next and not pager.has_prev
+        assert [key for key, _n in pager.next()] == ["C"]
+        assert not pager.has_next
+        assert [key for key, _n in pager.prev()] == ["A", "B"]
+
+
+def test_group_pager_leads_with_ungrouped_block(make_csv, tmp_path) -> None:
+    from lsa.core.report import GroupPager
+
+    path = make_csv("name,email\nAna,x@a\nBo,x@a\n,z@c\n")
+    rule = Rule(
+        id="either",
+        label="e",
+        match="any",
+        conditions=(
+            Condition("is_empty", ColumnRef("header", "name")),
+            Condition("is_duplicate", columns=(ColumnRef("header", "email"),)),
+        ),
+    )
+    with (
+        CsvRowStream(path, CsvOptions()) as stream,
+        ResultStore(tmp_path / "r.sqlite3") as store,
+    ):
+        _scan(stream, rule, store=store)
+        pager = GroupPager(store, "either", page_size=5)
+        assert pager.total == 2  # the ungrouped block + the x@a group
+        blocks = pager.page()
+        assert blocks[0] == (None, 1)  # per-row-condition match leads
+        assert blocks[1] == ("x@a", 2)
+        assert [m.row_number for m in store.get_group_rows("either", None, 5)] == [4]
+
+
+def test_report_json_includes_group_count(make_csv, tmp_path) -> None:
+    from lsa.core.report import build_report, report_to_dict
+    from lsa.core.rules import RuleSet as RS
+
+    path = make_csv("id,code\n1,A\n2,A\n3,B\n4,B\n")
+    ruleset = RS(rules=(_dup_rule(ColumnRef("header", "code")),))
+    with (
+        CsvRowStream(path, CsvOptions()) as stream,
+        ResultStore(tmp_path / "r.sqlite3") as store,
+    ):
+        summary = _scan(stream, *ruleset.rules, store=store)
+        report = build_report(file=path, sheet=None, ruleset=ruleset, summary=summary, store=store)
+    payload = report_to_dict(report)
+    assert payload["rules"][0]["group_count"] == 2
 
 
 @pytest.mark.parametrize("empty_cells", [True, False])

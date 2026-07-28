@@ -86,5 +86,9 @@
   "col.optional": "Spalte (optional)",
   "run.finalizing": "Duplikatgruppen werden ermittelt...",
   "report.group": "Gruppe",
-  "report.group.unique": "einmalig"
+  "report.group.unique": "einmalig",
+  "report.group.header": "{values} - {count} Zeile(n)",
+  "report.group.other": "Durch die anderen Bedingungen gefunden - {count} Zeile(n)",
+  "report.group.more": "+ {count} weitere Zeile(n) (siehe Export)",
+  "report.groups.position": "Gruppen {first}-{last} von {total}"
 }

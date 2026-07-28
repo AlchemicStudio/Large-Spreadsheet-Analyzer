@@ -86,5 +86,9 @@
   "col.optional": "Colonne (facultatif)",
   "run.finalizing": "Regroupement des doublons...",
   "report.group": "Groupe",
-  "report.group.unique": "unique"
+  "report.group.unique": "unique",
+  "report.group.header": "{values} - {count} ligne(s)",
+  "report.group.other": "Correspond aux autres conditions - {count} ligne(s)",
+  "report.group.more": "+ {count} autre(s) ligne(s) (voir l'export)",
+  "report.groups.position": "Groupes {first}-{last} sur {total}"
 }

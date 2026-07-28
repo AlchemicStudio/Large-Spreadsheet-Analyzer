@@ -488,9 +488,13 @@ def test_report_presenter_group_column(make_csv, tmp_path) -> None:
     try:
         assert presenter.has_groups("dup")
         assert presenter.table_columns("dup") == ["Row", "Group", "id", "code", "val"]
-        rows = presenter.page_rows("dup")
+        blocks = presenter.group_blocks("dup")
+        assert len(blocks) == 1  # one block per key combination
+        assert blocks[0].title == "A - 3 row(s)"
+        assert blocks[0].more_label is None
         # rows 2,3 share right-hand "x"; row 4 (val=y) is unique in key A
-        assert [(r[0], r[1]) for r in rows] == [("2", "x"), ("3", "x"), ("4", "unique")]
+        assert [(r[0], r[1]) for r in blocks[0].rows] == [("2", "x"), ("3", "x"), ("4", "unique")]
+        assert presenter.position_text("dup") == "Groups 1-1 of 1"
     finally:
         presenter.close()
         controller.discard_results()

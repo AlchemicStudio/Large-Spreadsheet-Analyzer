@@ -86,5 +86,9 @@
   "col.optional": "Column (optional)",
   "run.finalizing": "Resolving duplicate groups...",
   "report.group": "Group",
-  "report.group.unique": "unique"
+  "report.group.unique": "unique",
+  "report.group.header": "{values} - {count} row(s)",
+  "report.group.other": "Matched by the other conditions - {count} row(s)",
+  "report.group.more": "+ {count} more row(s) (see export)",
+  "report.groups.position": "Groups {first}-{last} of {total}"
 }

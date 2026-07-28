@@ -86,5 +86,9 @@
   "col.optional": "Columna (opcional)",
   "run.finalizing": "Resolviendo grupos de duplicados...",
   "report.group": "Grupo",
-  "report.group.unique": "único"
+  "report.group.unique": "único",
+  "report.group.header": "{values} - {count} fila(s)",
+  "report.group.other": "Coincidencias de las otras condiciones - {count} fila(s)",
+  "report.group.more": "+ {count} fila(s) más (ver exportación)",
+  "report.groups.position": "Grupos {first}-{last} de {total}"
 }

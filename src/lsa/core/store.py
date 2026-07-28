@@ -273,6 +273,51 @@ class ResultStore:
     # matches idx_matches_order exactly, so pagination never sorts.
     _ORDER = "ORDER BY group_key, sub_rank, sub_key, row_number"
 
+    def group_count(self, rule_id: str) -> int:
+        """Number of distinct duplicate groups stored for one rule."""
+        row = self._conn.execute(
+            "SELECT COUNT(DISTINCT group_key) FROM matches "
+            "WHERE rule_id = ? AND group_key IS NOT NULL",
+            (rule_id,),
+        ).fetchone()
+        return int(row[0])
+
+    def ungrouped_count(self, rule_id: str) -> int:
+        """Matches of one rule that belong to no duplicate group."""
+        row = self._conn.execute(
+            "SELECT COUNT(*) FROM matches WHERE rule_id = ? AND group_key IS NULL",
+            (rule_id,),
+        ).fetchone()
+        return int(row[0])
+
+    def get_group_page(self, rule_id: str, offset: int, limit: int) -> list[tuple[str, int]]:
+        """One page of ``(group_key, row_count)`` blocks, ordered by key."""
+        rows = self._conn.execute(
+            "SELECT group_key, COUNT(*) FROM matches "
+            "WHERE rule_id = ? AND group_key IS NOT NULL "
+            "GROUP BY group_key ORDER BY group_key LIMIT ? OFFSET ?",
+            (rule_id, limit, offset),
+        ).fetchall()
+        return [(key, int(count)) for key, count in rows]
+
+    def get_group_rows(self, rule_id: str, group_key: str | None, limit: int) -> list[StoredMatch]:
+        """The first ``limit`` rows of one group (None = the ungrouped block)."""
+        if group_key is None:
+            sql = (
+                "SELECT rule_id, row_number, byte_offset, cells, group_key, sub_key "
+                "FROM matches WHERE rule_id = ? AND group_key IS NULL "
+                "ORDER BY row_number LIMIT ?"
+            )
+            params: tuple = (rule_id, limit)
+        else:
+            sql = (
+                "SELECT rule_id, row_number, byte_offset, cells, group_key, sub_key "
+                "FROM matches WHERE rule_id = ? AND group_key = ? "
+                "ORDER BY sub_rank, sub_key, row_number LIMIT ?"
+            )
+            params = (rule_id, group_key, limit)
+        return [self._to_match(r) for r in self._conn.execute(sql, params).fetchall()]
+
     def get_page(self, rule_id: str, offset: int, limit: int) -> list[StoredMatch]:
         """Matches of one rule, paginated (duplicate groups kept together)."""
         rows = self._conn.execute(

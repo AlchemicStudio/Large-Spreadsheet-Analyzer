@@ -18,11 +18,13 @@ from lsa.core.csv_stream import CsvOptions, CsvRowStream, detect_csv_options
 from lsa.core.excel_stream import list_sheets, needs_memory_warning
 from lsa.core.i18n import Translator
 from lsa.core.report import (
+    GroupPager,
     MatchPager,
     MatchRowSource,
     build_report,
     export_all_matches,
     export_rule_matches,
+    format_group_key,
     format_sub_key,
     rule_has_groups,
     save_report,
@@ -41,6 +43,16 @@ from lsa.core.scan import ScanSummary
 from lsa.core.store import ResultStore
 
 PREVIEW_ROW_COUNT = 20
+GROUPS_PER_PAGE = 5
+
+
+@dataclass(frozen=True)
+class GroupBlock:
+    """One rendered block of the report for a duplicate rule."""
+
+    title: str
+    rows: list[list[str]]
+    more_label: str | None
 
 
 # --------------------------------------------------------------------------- rules drafts
@@ -429,7 +441,14 @@ class ReportPresenter:
         self._tr = tr
         self.sample_size = sample_size
         self._source = MatchRowSource(file, csv_options)
-        self._pagers = {rule.id: MatchPager(store, rule.id, sample_size) for rule in ruleset.rules}
+        # Duplicate rules paginate over key-group BLOCKS (each key combination
+        # is an isolated section); plain rules paginate over rows.
+        self._pagers: dict[str, MatchPager | GroupPager] = {}
+        for rule in ruleset.rules:
+            if rule_has_groups(rule):
+                self._pagers[rule.id] = GroupPager(store, rule.id, GROUPS_PER_PAGE)
+            else:
+                self._pagers[rule.id] = MatchPager(store, rule.id, sample_size)
 
     @property
     def partial(self) -> bool:
@@ -477,7 +496,44 @@ class ReportPresenter:
             return self._tr("report.no_matches")
         first = pager.offset + 1
         last = min(pager.offset + pager.page_size, pager.total)
-        return self._tr("report.position", first=first, last=last, total=pager.total)
+        key = "report.groups.position" if isinstance(pager, GroupPager) else "report.position"
+        return self._tr(key, first=first, last=last, total=pager.total)
+
+    def _display_row(self, match, grouped: bool, unique_label: str) -> list[str]:
+        cells = self._source.cells_for(match)
+        padded = list(cells[: self._width]) + [""] * max(0, self._width - len(cells))
+        row = [str(match.row_number), *padded]
+        if grouped:
+            row.insert(1, format_sub_key(match, unique_label))
+        return row
+
+    def group_blocks(self, rule_id: str) -> list[GroupBlock]:
+        """The current page of key-group blocks (duplicate rules only).
+
+        Each block is one key combination: a header ("AMM & O009KH - 8
+        rows"), up to ``sample_size`` rows, and a "+N more" note when the
+        block is larger.  A leading block collects matches that belong to
+        no group (per-row conditions of OR rules).
+        """
+        pager = self._pagers[rule_id]
+        assert isinstance(pager, GroupPager)
+        unique_label = self._tr("report.group.unique")
+        blocks = []
+        for group_key, count in pager.page():
+            matches = self._store.get_group_rows(rule_id, group_key, self.sample_size)
+            rows = [self._display_row(m, grouped=True, unique_label=unique_label) for m in matches]
+            if group_key is None:
+                title = self._tr("report.group.other", count=f"{count:,}")
+            else:
+                title = self._tr(
+                    "report.group.header",
+                    values=format_group_key(group_key, separator=" & "),
+                    count=f"{count:,}",
+                )
+            hidden = count - len(rows)
+            more = self._tr("report.group.more", count=f"{hidden:,}") if hidden > 0 else None
+            blocks.append(GroupBlock(title=title, rows=rows, more_label=more))
+        return blocks
 
     def can_prev(self, rule_id: str) -> bool:
         return self._pagers[rule_id].has_prev
@@ -486,23 +542,14 @@ class ReportPresenter:
         return self._pagers[rule_id].has_next
 
     def page_rows(self, rule_id: str) -> list[list[str]]:
-        """Display rows for the current page: [row_number, (group,) cell, ...].
-
-        For duplicate rules a group column follows the row number: the shared
-        right-hand content for grouped rows, or the localized "unique" label.
-        """
-        width = self._width
-        grouped = self.has_groups(rule_id)
+        """Display rows for the current page (plain rules only)."""
+        pager = self._pagers[rule_id]
+        assert isinstance(pager, MatchPager)
         unique_label = self._tr("report.group.unique")
-        rows = []
-        for match in self._pagers[rule_id].page():
-            cells = self._source.cells_for(match)
-            padded = list(cells[:width]) + [""] * max(0, width - len(cells))
-            row = [str(match.row_number), *padded]
-            if grouped:
-                row.insert(1, format_sub_key(match, unique_label))
-            rows.append(row)
-        return rows
+        return [
+            self._display_row(match, grouped=False, unique_label=unique_label)
+            for match in pager.page()
+        ]
 
     def next_page(self, rule_id: str) -> None:
         self._pagers[rule_id].next()
@@ -511,9 +558,11 @@ class ReportPresenter:
         self._pagers[rule_id].prev()
 
     def set_sample_size(self, size: int) -> None:
+        """Rows per page (plain rules) / rows shown per block (duplicate rules)."""
         self.sample_size = max(1, size)
         for pager in self._pagers.values():
-            pager.set_page_size(self.sample_size)
+            if isinstance(pager, MatchPager):
+                pager.set_page_size(self.sample_size)
 
     def export_rule(self, rule_id: str, out_path: str | Path) -> str:
         export_rule_matches(

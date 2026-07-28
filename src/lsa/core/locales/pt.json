@@ -86,5 +86,9 @@
   "col.optional": "Coluna (opcional)",
   "run.finalizing": "A identificar grupos de duplicados...",
   "report.group": "Grupo",
-  "report.group.unique": "único"
+  "report.group.unique": "único",
+  "report.group.header": "{values} - {count} linha(s)",
+  "report.group.other": "Correspondências das outras condições - {count} linha(s)",
+  "report.group.more": "+ {count} outra(s) linha(s) (ver exportação)",
+  "report.groups.position": "Grupos {first}-{last} de {total}"
 }

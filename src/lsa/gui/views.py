@@ -821,6 +821,7 @@ class ReportStep(StepFrame):
         self.sections.grid(row=3, column=0, sticky="nsew", **_PAD)
         self.sections.grid_columnconfigure(0, weight=1)
         self._tables: dict[str, Table] = {}
+        self._block_frames: dict[str, ctk.CTkFrame] = {}
         self._positions: dict[str, ctk.CTkLabel] = {}
         self._nav_buttons: dict[str, tuple[ctk.CTkButton, ctk.CTkButton]] = {}
         for i, rule_id in enumerate(self.presenter.rule_ids()):
@@ -847,9 +848,17 @@ class ReportStep(StepFrame):
             command=lambda r=rule_id: self._export_rule(r),
         ).grid(row=0, column=1, sticky="e", **_PAD)
 
-        table = Table(card, height=4)
-        table.grid(row=1, column=0, columnspan=2, sticky="ew", **_PAD)
-        self._tables[rule_id] = table
+        if presenter.has_groups(rule_id):
+            # Each key combination renders as its own isolated block inside
+            # this container (header + table + count), rebuilt per page.
+            blocks_frame = ctk.CTkFrame(card, fg_color="transparent")
+            blocks_frame.grid(row=1, column=0, columnspan=2, sticky="ew", **_PAD)
+            blocks_frame.grid_columnconfigure(0, weight=1)
+            self._block_frames[rule_id] = blocks_frame
+        else:
+            table = Table(card, height=4)
+            table.grid(row=1, column=0, columnspan=2, sticky="ew", **_PAD)
+            self._tables[rule_id] = table
 
         nav = ctk.CTkFrame(card, fg_color="transparent")
         nav.grid(row=2, column=0, columnspan=2, sticky="w", **_PAD)
@@ -868,12 +877,39 @@ class ReportStep(StepFrame):
 
     def _refresh_section(self, rule_id: str) -> None:
         presenter = self.presenter
-        columns = presenter.table_columns(rule_id)
-        self._tables[rule_id].set_data(columns, presenter.page_rows(rule_id))
+        if presenter.has_groups(rule_id):
+            self._render_blocks(rule_id)
+        else:
+            columns = presenter.table_columns(rule_id)
+            self._tables[rule_id].set_data(columns, presenter.page_rows(rule_id))
         self._positions[rule_id].configure(text=presenter.position_text(rule_id))
         prev_button, next_button = self._nav_buttons[rule_id]
         prev_button.configure(state="normal" if presenter.can_prev(rule_id) else "disabled")
         next_button.configure(state="normal" if presenter.can_next(rule_id) else "disabled")
+
+    def _render_blocks(self, rule_id: str) -> None:
+        frame = self._block_frames[rule_id]
+        for child in frame.winfo_children():
+            child.destroy()
+        columns = self.presenter.table_columns(rule_id)
+        grid_row = 0
+        for block in self.presenter.group_blocks(rule_id):
+            ctk.CTkLabel(frame, text=block.title, anchor="w", font=ctk.CTkFont(weight="bold")).grid(
+                row=grid_row, column=0, sticky="w", pady=(8, 2)
+            )
+            table = Table(frame, height=max(1, len(block.rows)))
+            table.set_data(columns, block.rows)
+            table.grid(row=grid_row + 1, column=0, sticky="ew")
+            more_row = 0
+            if block.more_label is not None:
+                ctk.CTkLabel(
+                    frame,
+                    text=block.more_label,
+                    anchor="w",
+                    text_color=("gray25", "gray70"),
+                ).grid(row=grid_row + 2, column=0, sticky="w")
+                more_row = 1
+            grid_row += 2 + more_row
 
     def _refresh_all(self) -> None:
         for rule_id in self.presenter.rule_ids():
