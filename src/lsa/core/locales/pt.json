@@ -90,5 +90,18 @@
   "report.group.header": "{values} - {count} linha(s)",
   "report.group.other": "Correspondências das outras condições - {count} linha(s)",
   "report.group.more": "+ {count} outra(s) linha(s) (ver exportação)",
-  "report.groups.position": "Grupos {first}-{last} de {total}"
+  "report.groups.position": "Grupos {first}-{last} de {total}",
+  "step.dupfile.title": "Ficheiro de duplicados",
+  "step.dupfile.help": "Gere um CSV com as linhas duplicadas a remover. Selecione um ficheiro de referência e associe as suas colunas às do ficheiro analisado. Em cada grupo de duplicados, as linhas com células à direita idênticas mantêm apenas o ID mais baixo; as linhas únicas só são mantidas se existir uma linha idêntica no ficheiro de referência.",
+  "dupfile.no_rule": "Esta análise não tem uma regra 'está duplicada em várias linhas' - não há nada para extrair aqui.",
+  "dupfile.rule": "Regra",
+  "dupfile.id_column": "Coluna ID",
+  "dupfile.reference": "Ficheiro de referência",
+  "dupfile.mapping": "Correspondência de colunas (ficheiro analisado -> ficheiro de referência)",
+  "dupfile.extract": "Extrair duplicados",
+  "dupfile.extracting.reference": "A ler o ficheiro de referência... {rows} linha(s)",
+  "dupfile.extracting.groups": "A processar grupos... {done} / {total}",
+  "dupfile.done": "{written} linha(s) duplicada(s) extraída(s); {kept} linha(s) mantida(s); {groups} grupo(s) processado(s); referência: {reference} linha(s).",
+  "dupfile.cancelled": "Extração cancelada - o ficheiro está incompleto.",
+  "dupfile.save": "Guardar ficheiro de duplicados..."
 }

@@ -90,5 +90,18 @@
   "report.group.header": "{values} - {count} ligne(s)",
   "report.group.other": "Correspond aux autres conditions - {count} ligne(s)",
   "report.group.more": "+ {count} autre(s) ligne(s) (voir l'export)",
-  "report.groups.position": "Groupes {first}-{last} sur {total}"
+  "report.groups.position": "Groupes {first}-{last} sur {total}",
+  "step.dupfile.title": "Fichier des doublons",
+  "step.dupfile.help": "Générez un CSV des lignes en double à supprimer. Sélectionnez un fichier de référence et associez ses colonnes à celles du fichier analysé. Dans chaque groupe de doublons, les lignes aux cellules de droite identiques ne conservent que l'ID le plus bas ; les lignes uniques ne sont conservées que si une ligne identique existe dans le fichier de référence.",
+  "dupfile.no_rule": "Cette analyse n'a pas de règle « est dupliquée dans plusieurs lignes » - il n'y a rien à extraire ici.",
+  "dupfile.rule": "Règle",
+  "dupfile.id_column": "Colonne ID",
+  "dupfile.reference": "Fichier de référence",
+  "dupfile.mapping": "Correspondance des colonnes (fichier analysé -> fichier de référence)",
+  "dupfile.extract": "Extraire les doublons",
+  "dupfile.extracting.reference": "Lecture du fichier de référence... {rows} ligne(s)",
+  "dupfile.extracting.groups": "Traitement des groupes... {done} / {total}",
+  "dupfile.done": "{written} ligne(s) en double extraite(s) ; {kept} ligne(s) conservée(s) ; {groups} groupe(s) traité(s) ; référence : {reference} ligne(s).",
+  "dupfile.cancelled": "Extraction annulée - le fichier est incomplet.",
+  "dupfile.save": "Enregistrer le fichier des doublons..."
 }

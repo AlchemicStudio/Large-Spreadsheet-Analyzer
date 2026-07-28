@@ -26,12 +26,20 @@ Nothing ever leaves your machine.
   this). Blank cells count as equal content; add a `not_empty` condition
   to the rule to exclude them. The duplicate index is built on disk
   (SQLite), never in RAM.
-- **GUI**: a five-step CustomTkinter wizard (file → import options → rules →
-  run → report) translated into English, French, German, Spanish and
-  Portuguese (pt-PT). Scans run in an isolated scan *process* with live
-  per-rule counters, a global progress bar and a Cancel button (partial
-  results are kept and marked as partial). If the scan process dies (e.g.
-  stopped by the OS), the GUI reports it instead of hanging or crashing.
+- **GUI**: a six-step CustomTkinter wizard (file → import options → rules →
+  run → report → duplicate file) translated into English, French, German,
+  Spanish and Portuguese (pt-PT). Scans run in an isolated scan *process*
+  with live per-rule counters, a global progress bar and a Cancel button
+  (partial results are kept and marked as partial). If the scan process
+  dies (e.g. stopped by the OS), the GUI reports it instead of hanging or
+  crashing.
+- **Duplicate file generation** (step 6): pick a reference file, map its
+  columns to the scanned file, and extract a CSV of duplicate rows to
+  remove. In each duplicate group, rows with identical right-hand cells
+  keep only the lowest ID (the others go to the duplicate file); rows with
+  unique right-hand cells are kept only when an identical row (over the
+  mapped columns) exists in the reference file. The extraction streams in
+  its own process and the result is saved wherever you choose.
 - **CLI**: the same engine headless, for pipelines
   (exit code `0` = no matches, `1` = matches found, `2` = error).
 - **Report**: per-rule match counts with lazily loaded sample rows

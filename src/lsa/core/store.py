@@ -69,6 +69,13 @@ class StoredMatch(NamedTuple):
 
 _TEMP_PREFIX = "lsa-results-"
 _TEMP_SUFFIX = ".sqlite3"
+# Every temp-file family the application creates; a crash/kill can leak any
+# of them, so the stale sweeper must know them all.
+_STALE_PATTERNS = (
+    "lsa-results-*.sqlite3",
+    "lsa-refkeys-*.sqlite3",
+    "lsa-duplicates-*.csv",
+)
 _STALE_AFTER_SECONDS = 2 * 24 * 3600
 _stale_cleanup_done = False
 
@@ -96,15 +103,16 @@ def _cleanup_stale_stores(directory: Path) -> None:
         return
     _stale_cleanup_done = True
     cutoff = time.time() - _STALE_AFTER_SECONDS
-    with contextlib.suppress(OSError):
-        for leftover in directory.glob(f"{_TEMP_PREFIX}*{_TEMP_SUFFIX}"):
-            with contextlib.suppress(OSError):
-                if leftover.stat().st_mtime < cutoff:
-                    leftover.unlink()
+    for pattern in _STALE_PATTERNS:
+        with contextlib.suppress(OSError):
+            for leftover in directory.glob(pattern):
+                with contextlib.suppress(OSError):
+                    if leftover.stat().st_mtime < cutoff:
+                        leftover.unlink()
 
 
-def make_temp_store_path() -> Path:
-    """Create an empty temp file for a result store and return its path.
+def make_temp_store_path(prefix: str = _TEMP_PREFIX, suffix: str = _TEMP_SUFFIX) -> Path:
+    """Create an empty temp file on disk-backed storage and return its path.
 
     Callers using this directly (instead of ``ResultStore()``) own the file
     and must delete it themselves — used by the GUI, where the scan process
@@ -113,8 +121,8 @@ def make_temp_store_path() -> Path:
     store_dir = _default_store_dir()
     _cleanup_stale_stores(store_dir if store_dir is not None else Path(tempfile.gettempdir()))
     handle = tempfile.NamedTemporaryFile(  # noqa: SIM115 - we only want the name
-        prefix=_TEMP_PREFIX,
-        suffix=_TEMP_SUFFIX,
+        prefix=prefix,
+        suffix=suffix,
         dir=None if store_dir is None else str(store_dir),
         delete=False,
     )
@@ -130,7 +138,19 @@ class ResultStore:
     is why ``check_same_thread=False`` is safe here.
     """
 
-    def __init__(self, db_path: str | Path | None = None):
+    def __init__(self, db_path: str | Path | None = None, *, read_only: bool = False):
+        if read_only:
+            # Another process may hold this database open (e.g. the GUI while
+            # the extraction subprocess reads it); mode=ro guarantees this
+            # connection can never write.
+            if db_path is None:
+                raise ValueError("read_only requires an existing db_path")
+            self._owns_file = False
+            self.db_path = Path(db_path)
+            self._conn = sqlite3.connect(
+                f"file:{self.db_path}?mode=ro", uri=True, check_same_thread=False
+            )
+            return
         if db_path is None:
             db_path = make_temp_store_path()
             self._owns_file = True
@@ -326,6 +346,22 @@ class ResultStore:
             (rule_id, limit, offset),
         ).fetchall()
         return [self._to_match(r) for r in rows]
+
+    def iter_grouped_matches(self, rule_id: str) -> Iterator[StoredMatch]:
+        """Stream every grouped match of one rule in block order.
+
+        Order is (group_key, sub_rank, sub_key, row_number) — fully covered
+        by idx_matches_order — so consumers can process duplicate groups and
+        their sub-groups as consecutive runs without buffering.
+        """
+        cursor = self._conn.execute(
+            "SELECT rule_id, row_number, byte_offset, cells, group_key, sub_key FROM matches "
+            "WHERE rule_id = ? AND group_key IS NOT NULL "
+            "ORDER BY group_key, sub_rank, sub_key, row_number",
+            (rule_id,),
+        )
+        for row in cursor:
+            yield self._to_match(row)
 
     def iter_matches(self, rule_id: str) -> Iterator[StoredMatch]:
         """Stream all matches of one rule (for exports), groups together."""

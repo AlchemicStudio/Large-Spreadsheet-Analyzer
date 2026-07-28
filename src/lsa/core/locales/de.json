@@ -90,5 +90,18 @@
   "report.group.header": "{values} - {count} Zeile(n)",
   "report.group.other": "Durch die anderen Bedingungen gefunden - {count} Zeile(n)",
   "report.group.more": "+ {count} weitere Zeile(n) (siehe Export)",
-  "report.groups.position": "Gruppen {first}-{last} von {total}"
+  "report.groups.position": "Gruppen {first}-{last} von {total}",
+  "step.dupfile.title": "Duplikatdatei",
+  "step.dupfile.help": "Erzeugen Sie eine CSV der zu entfernenden Duplikatzeilen. Wählen Sie eine Referenzdatei und ordnen Sie deren Spalten der analysierten Datei zu. In jeder Duplikatgruppe behalten Zeilen mit identischen rechten Zellen nur die niedrigste ID; einmalige Zeilen werden nur behalten, wenn eine identische Zeile in der Referenzdatei existiert.",
+  "dupfile.no_rule": "Diese Analyse hat keine Regel 'ist in mehreren Zeilen dupliziert' - hier gibt es nichts zu extrahieren.",
+  "dupfile.rule": "Regel",
+  "dupfile.id_column": "ID-Spalte",
+  "dupfile.reference": "Referenzdatei",
+  "dupfile.mapping": "Spaltenzuordnung (analysierte Datei -> Referenzdatei)",
+  "dupfile.extract": "Duplikate extrahieren",
+  "dupfile.extracting.reference": "Referenzdatei wird gelesen... {rows} Zeile(n)",
+  "dupfile.extracting.groups": "Gruppen werden verarbeitet... {done} / {total}",
+  "dupfile.done": "{written} Duplikatzeile(n) extrahiert; {kept} Zeile(n) behalten; {groups} Gruppe(n) verarbeitet; Referenz: {reference} Zeile(n).",
+  "dupfile.cancelled": "Extraktion abgebrochen - die Datei ist unvollständig.",
+  "dupfile.save": "Duplikatdatei speichern..."
 }

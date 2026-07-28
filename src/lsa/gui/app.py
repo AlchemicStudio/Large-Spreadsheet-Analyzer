@@ -7,9 +7,17 @@ import customtkinter as ctk
 from lsa.core.i18n import Translator, available_locales, system_locale
 from lsa.core.rules import RuleSet
 from lsa.gui.presenters import WizardState
-from lsa.gui.views import FileStep, ImportStep, ReportStep, RulesStep, RunStep, StepFrame
+from lsa.gui.views import (
+    DupFileStep,
+    FileStep,
+    ImportStep,
+    ReportStep,
+    RulesStep,
+    RunStep,
+    StepFrame,
+)
 from lsa.gui.widgets import style_treeviews
-from lsa.gui.worker import ScanController
+from lsa.gui.worker import ExtractController, ScanController
 
 _LANGUAGE_NAMES = {
     "en": "English",
@@ -25,6 +33,7 @@ _STEPS: list[tuple[str, type[StepFrame]]] = [
     ("step.rules.title", RulesStep),
     ("step.run.title", RunStep),
     ("step.report.title", ReportStep),
+    ("step.dupfile.title", DupFileStep),
 ]
 
 
@@ -36,6 +45,7 @@ class App(ctk.CTk):
         self.tr = Translator(locale or system_locale())
         self.wizard = WizardState()
         self.controller = ScanController()
+        self.extractor = ExtractController()
         self.ruleset: RuleSet = RuleSet(rules=())
         self.step_index = 0
         self.step_frame: StepFrame | None = None
@@ -144,6 +154,7 @@ class App(ctk.CTk):
     # ------------------------------------------------------------- lifecycle
 
     def _on_close(self) -> None:
+        self.extractor.shutdown()
         self.controller.shutdown()
         self.destroy()
 

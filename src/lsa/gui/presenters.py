@@ -16,6 +16,7 @@ from typing import Any
 from lsa.core.columns import index_to_letter
 from lsa.core.csv_stream import CsvOptions, CsvRowStream, detect_csv_options
 from lsa.core.excel_stream import list_sheets, needs_memory_warning
+from lsa.core.extract import ColumnMapping
 from lsa.core.i18n import Translator
 from lsa.core.report import (
     GroupPager,
@@ -41,6 +42,7 @@ from lsa.core.rules import (
 )
 from lsa.core.scan import ScanSummary
 from lsa.core.store import ResultStore
+from lsa.core.streams import open_stream
 
 PREVIEW_ROW_COUNT = 20
 GROUPS_PER_PAGE = 5
@@ -411,6 +413,170 @@ class RulesPresenter:
             return error
         save_rules(ruleset, path)
         return None
+
+
+@dataclass
+class MappingRow:
+    """One line of the column-mapping editor."""
+
+    source_index: int
+    source_label: str
+    ref_index: int | None
+
+
+class DupFilePresenter:
+    """Step 6: reference file, column mapping, duplicate-file extraction."""
+
+    def __init__(self, state: WizardState, controller, ruleset: RuleSet, tr: Translator):
+        self._state = state
+        self._controller = controller
+        self._ruleset = ruleset
+        self._tr = tr
+        self.reference_path: Path | None = None
+        self.reference_csv_options: CsvOptions | None = None
+        self.reference_sheets: list[str] = []
+        self.reference_sheet: str | None = None
+        self.reference_has_header: bool = True
+        self.reference_header: list[str] | None = None
+        self.reference_width: int = 0
+        self.mapping: list[MappingRow] = []
+
+    def duplicate_rules(self) -> list:
+        """The rules this step can extract for (those with is_duplicate)."""
+        return [rule for rule in self._ruleset.rules if rule_has_groups(rule)]
+
+    def source_columns(self) -> list[str]:
+        header = self._controller.header
+        if header is not None:
+            return list(header)
+        return [index_to_letter(i) for i in range(self._controller.width)]
+
+    def select_reference(self, path_str: str) -> str | None:
+        """Register the reference file and build a default mapping."""
+        path = Path(path_str).expanduser()
+        if not path.is_file():
+            return self._tr("file.invalid", error=path_str)
+        try:
+            fmt = detect_format(path)
+        except UnsupportedFormatError as exc:
+            return self._tr("file.invalid", error=str(exc))
+        try:
+            if fmt is FileFormat.CSV:
+                self.reference_csv_options = detect_csv_options(path)
+                self.reference_has_header = self.reference_csv_options.has_header
+                self.reference_sheets = []
+                self.reference_sheet = None
+            else:
+                self.reference_csv_options = None
+                self.reference_sheets = list_sheets(path)
+                self.reference_sheet = self.reference_sheets[0] if self.reference_sheets else None
+                self.reference_has_header = True
+            self.reference_path = path
+            self._peek_reference()
+        except Exception as exc:
+            self.reference_path = None
+            return self._tr("file.invalid", error=str(exc))
+        self.reset_mapping()
+        return None
+
+    def _peek_reference(self) -> None:
+        assert self.reference_path is not None
+        options = self.reference_csv_options
+        if options is not None and options.has_header != self.reference_has_header:
+            options = replace(options, has_header=self.reference_has_header)
+            self.reference_csv_options = options
+        stream = open_stream(
+            self.reference_path,
+            csv_options=options,
+            sheet=self.reference_sheet,
+            has_header=self.reference_has_header,
+        )
+        try:
+            self.reference_header = stream.header
+            self.reference_width = stream.width
+        finally:
+            stream.close()
+
+    def set_reference_sheet(self, sheet: str) -> str | None:
+        self.reference_sheet = sheet
+        return self._repeek()
+
+    def set_reference_has_header(self, has_header: bool) -> str | None:
+        self.reference_has_header = has_header
+        return self._repeek()
+
+    def _repeek(self) -> str | None:
+        if self.reference_path is None:
+            return None
+        try:
+            self._peek_reference()
+        except Exception as exc:
+            return self._tr("file.invalid", error=str(exc))
+        self.reset_mapping()
+        return None
+
+    def reference_column_labels(self) -> list[str]:
+        if self.reference_header is not None:
+            return list(self.reference_header)
+        return [index_to_letter(i) for i in range(self.reference_width)]
+
+    def reset_mapping(self) -> None:
+        """Default mapping: same header name first, then same position."""
+        source = self.source_columns()
+        ref_labels = self.reference_column_labels()
+        by_name: dict[str, int] = {}
+        if self.reference_header is not None:
+            for i, name in enumerate(self.reference_header):
+                by_name.setdefault(name.strip().casefold(), i)
+        rows: list[MappingRow] = []
+        source_has_header = self._controller.header is not None
+        for i, label in enumerate(source):
+            ref_index: int | None = None
+            if source_has_header and self.reference_header is not None:
+                ref_index = by_name.get(label.strip().casefold())
+            if ref_index is None and i < len(ref_labels):
+                ref_index = i
+            rows.append(MappingRow(source_index=i, source_label=label, ref_index=ref_index))
+        self.mapping = rows
+
+    def set_mapping(self, source_index: int, ref_index: int | None) -> None:
+        for row in self.mapping:
+            if row.source_index == source_index:
+                row.ref_index = ref_index
+                return
+
+    def mapping_ready(self) -> bool:
+        return self.reference_path is not None and any(
+            row.ref_index is not None for row in self.mapping
+        )
+
+    def build_mapping(self) -> ColumnMapping:
+        pairs = tuple(
+            (row.source_index, row.ref_index) for row in self.mapping if row.ref_index is not None
+        )
+        return ColumnMapping(pairs=pairs)
+
+    def extract_kwargs(self, rule_id: str, id_column: int) -> dict:
+        """Picklable arguments for the extraction subprocess."""
+        assert self.reference_path is not None
+        source_options = self._state.csv_options
+        separator = source_options.separator if source_options is not None else ","
+        return {
+            "scan_db_path": str(self._controller.db_path),
+            "rule_id": rule_id,
+            "source_path": str(self._state.file),
+            "source_csv_options": source_options,
+            "source_header": self._controller.header,
+            "source_width": self._controller.width,
+            "reference_path": str(self.reference_path),
+            "reference_csv_options": self.reference_csv_options,
+            "reference_sheet": self.reference_sheet,
+            "reference_has_header": self.reference_has_header,
+            "mapping": self.build_mapping(),
+            "settings": self._ruleset.settings,
+            "id_column": id_column,
+            "out_separator": separator,
+        }
 
 
 class ReportPresenter:

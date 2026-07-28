@@ -500,6 +500,101 @@ def test_report_presenter_group_column(make_csv, tmp_path) -> None:
         controller.discard_results()
 
 
+def _scan_dup_rule(make_csv):
+    controller = ScanController()
+    src = make_csv("id,key,val\n4,A,x\n2,A,x\n7,A,q\n", name="src.csv")
+    ruleset = build_ruleset(
+        [
+            RuleDraft(
+                id="dup",
+                label="dup",
+                match="all",
+                conditions=[
+                    ConditionDraft(type="is_duplicate", column_by="header", column_value="key")
+                ],
+            )
+        ],
+        Settings(),
+    )
+    controller.start(
+        path=src, ruleset=ruleset, csv_options=CsvOptions(), sheet=None, has_header=True
+    )
+    controller.join(timeout=15)
+    controller.drain()
+    assert controller.summary is not None
+    state = WizardState(file=src, csv_options=CsvOptions())
+    return controller, state, ruleset, src
+
+
+def test_dupfile_presenter_maps_by_name_and_extracts(make_csv) -> None:
+    from lsa.gui.presenters import DupFilePresenter
+    from lsa.gui.worker import ExtractController
+
+    controller, state, ruleset, _src = _scan_dup_rule(make_csv)
+    presenter = DupFilePresenter(state, controller, ruleset, TR)
+    try:
+        assert [r.id for r in presenter.duplicate_rules()] == ["dup"]
+        assert presenter.source_columns() == ["id", "key", "val"]
+        assert not presenter.mapping_ready()
+
+        # reference with the same headers in a different order: mapped by name
+        ref = make_csv("val,key,id\nq,A,99\n", name="ref.csv")
+        assert presenter.select_reference(str(ref)) is None
+        assert presenter.set_reference_has_header(True) is None
+        mapping = {row.source_label: row.ref_index for row in presenter.mapping}
+        assert mapping == {"id": 2, "key": 1, "val": 0}
+        assert presenter.mapping_ready()
+        presenter.set_mapping(0, None)  # drop the id from the comparison
+        assert presenter.build_mapping().pairs == ((1, 1), (2, 0))
+
+        kwargs = presenter.extract_kwargs("dup", id_column=0)
+        extractor = ExtractController()
+        extractor.start(**kwargs)
+        extractor.join(timeout=20)
+        messages = extractor.drain()
+        assert messages[-1].kind == "done"
+        # once the terminal message is absorbed the job is over: the UI must
+        # be able to re-enable its buttons immediately, no teardown race
+        assert extractor.running is False
+        stats = extractor.stats
+        # A/x sub-group: id 2 survives, id 4 extracted; unique row 7 (A,q)
+        # exists in the reference (key+val mapped) -> kept
+        assert stats.case_a_rows == 1
+        assert stats.case_b_rows == 0
+        assert stats.kept_rows == 2
+        out_text = extractor.out_path.read_text(encoding="utf-8")
+        assert "4,A,x" in out_text
+        out_path = extractor.out_path
+        ref_db_path = extractor._ref_db_path
+        extractor.discard_output()
+        assert not out_path.exists()
+        assert ref_db_path is not None and not ref_db_path.exists()
+
+        # a finished controller can start a fresh run right away
+        extractor.start(**presenter.extract_kwargs("dup", id_column=0))
+        extractor.join(timeout=20)
+        assert extractor.drain()[-1].kind == "done"
+        extractor.discard_output()
+    finally:
+        controller.discard_results()
+
+
+def test_dupfile_presenter_position_fallback_mapping(make_csv) -> None:
+    from lsa.gui.presenters import DupFilePresenter
+
+    controller, state, ruleset, _src = _scan_dup_rule(make_csv)
+    presenter = DupFilePresenter(state, controller, ruleset, TR)
+    try:
+        # headerless reference with only two columns: positions 0,1 map, 2 has no slot
+        ref = make_csv("1,2\n3,4\n", name="ref2.csv")
+        assert presenter.select_reference(str(ref)) is None
+        assert presenter.set_reference_has_header(False) is None
+        assert [row.ref_index for row in presenter.mapping] == [0, 1, None]
+        assert presenter.reference_column_labels() == ["A", "B"]
+    finally:
+        controller.discard_results()
+
+
 def test_report_presenter_exports(make_csv, tmp_path) -> None:
     controller, state = _scan_controller(make_csv)
     ruleset = build_ruleset(state.rule_drafts, state.settings)

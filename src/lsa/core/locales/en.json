@@ -90,5 +90,18 @@
   "report.group.header": "{values} - {count} row(s)",
   "report.group.other": "Matched by the other conditions - {count} row(s)",
   "report.group.more": "+ {count} more row(s) (see export)",
-  "report.groups.position": "Groups {first}-{last} of {total}"
+  "report.groups.position": "Groups {first}-{last} of {total}",
+  "step.dupfile.title": "Duplicate file",
+  "step.dupfile.help": "Generate a CSV of duplicate rows to remove. Select a reference file and map its columns to the scanned file. In each duplicate group, rows with identical right-hand cells keep only the lowest ID; unique rows are kept only when an identical row exists in the reference file.",
+  "dupfile.no_rule": "This scan has no 'is duplicated in several rows' rule - there is nothing to extract here.",
+  "dupfile.rule": "Rule",
+  "dupfile.id_column": "ID column",
+  "dupfile.reference": "Reference file",
+  "dupfile.mapping": "Column mapping (scanned file -> reference file)",
+  "dupfile.extract": "Extract duplicates",
+  "dupfile.extracting.reference": "Reading reference file... {rows} row(s)",
+  "dupfile.extracting.groups": "Processing groups... {done} / {total}",
+  "dupfile.done": "{written} duplicate row(s) extracted; {kept} row(s) kept; {groups} group(s) processed; reference: {reference} row(s).",
+  "dupfile.cancelled": "Extraction cancelled - the file is incomplete.",
+  "dupfile.save": "Save duplicate file..."
 }

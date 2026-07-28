@@ -85,9 +85,14 @@ def test_stale_leaked_stores_are_removed(tmp_path: Path, monkeypatch) -> None:
 
     monkeypatch.setattr(store_module, "_default_store_dir", lambda: tmp_path)
     monkeypatch.setattr(store_module, "_stale_cleanup_done", False)
-    old = tmp_path / "lsa-results-old.sqlite3"
-    old.write_bytes(b"x")
-    os.utime(old, (time.time() - 3 * 24 * 3600, time.time() - 3 * 24 * 3600))
+    stale_time = (time.time() - 3 * 24 * 3600, time.time() - 3 * 24 * 3600)
+    old_files = []
+    # every temp family the app creates must be swept, not just lsa-results
+    for name in ("lsa-results-old.sqlite3", "lsa-refkeys-old.sqlite3", "lsa-duplicates-old.csv"):
+        stale = tmp_path / name
+        stale.write_bytes(b"x")
+        os.utime(stale, stale_time)
+        old_files.append(stale)
     fresh = tmp_path / "lsa-results-fresh.sqlite3"
     fresh.write_bytes(b"x")
     unrelated = tmp_path / "keep.sqlite3"
@@ -95,7 +100,8 @@ def test_stale_leaked_stores_are_removed(tmp_path: Path, monkeypatch) -> None:
 
     store = ResultStore()
     try:
-        assert not old.exists()
+        for stale in old_files:
+            assert not stale.exists(), stale.name
         assert fresh.exists()
         assert unrelated.exists()
         assert store.db_path.parent == tmp_path

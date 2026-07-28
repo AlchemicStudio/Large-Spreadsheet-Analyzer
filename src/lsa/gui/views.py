@@ -15,9 +15,11 @@ from typing import TYPE_CHECKING
 
 import customtkinter as ctk
 
+from lsa.core.columns import index_to_letter
 from lsa.core.csv_stream import CsvOptions
 from lsa.gui.presenters import (
     ConditionDraft,
+    DupFilePresenter,
     FileStepPresenter,
     ImportPresenter,
     ReportPresenter,
@@ -319,8 +321,6 @@ class CsvImportDialog(ctk.CTkToplevel):
         rows, error = self.presenter.csv_preview(self._current_options())
         self.error_label.configure(text=error or "")
         width = max((len(r) for r in rows), default=0)
-        from lsa.core.columns import index_to_letter
-
         columns = [index_to_letter(i) for i in range(width)]
         self.table.set_data(columns, rows)
 
@@ -660,6 +660,9 @@ class RunStep(StepFrame):
         self.progress.set(0)
         for label in self.counter_labels.values():
             label.configure(text=self.tr("run.matches", count=0))
+        # A new scan invalidates any duplicate file extracted from the
+        # previous results - never offer stale output for fresh results.
+        app.extractor.discard_output()
         try:
             self.controller.start(**self._scan_config())
         except RuntimeError as exc:
@@ -957,4 +960,283 @@ class ReportStep(StepFrame):
 
     def destroy(self) -> None:
         self.presenter.close()
+        super().destroy()
+
+
+# ------------------------------------------------------------------ step 6: duplicate file
+
+
+class DupFileStep(StepFrame):
+    help_key = "step.dupfile.help"
+
+    def __init__(self, app: App):
+        super().__init__(app)
+        self.extractor = app.extractor
+        self.presenter = DupFilePresenter(app.wizard, app.controller, app.ruleset, app.tr)
+        self._poll_job: str | None = None
+        self._rules = self.presenter.duplicate_rules()
+        if not self._rules:
+            ctk.CTkLabel(self, text=self.tr("dupfile.no_rule"), anchor="w").grid(
+                row=1, column=0, sticky="w", **_PAD
+            )
+            return
+        self.grid_rowconfigure(3, weight=1)
+
+        top = ctk.CTkFrame(self, fg_color="transparent")
+        top.grid(row=1, column=0, sticky="ew", **_PAD)
+        top.grid_columnconfigure(3, weight=1)
+        ctk.CTkLabel(top, text=self.tr("dupfile.rule")).grid(row=0, column=0, padx=(0, 6))
+        self._rule_by_label = {f"{r.label} ({r.id})": r.id for r in self._rules}
+        self.rule_var = ctk.StringVar(value=next(iter(self._rule_by_label)))
+        ctk.CTkOptionMenu(
+            top, values=list(self._rule_by_label), variable=self.rule_var, width=260
+        ).grid(row=0, column=1, padx=(0, 16))
+        ctk.CTkLabel(top, text=self.tr("dupfile.id_column")).grid(row=0, column=2, padx=(0, 6))
+        source_columns = self.presenter.source_columns()
+        # Letter-tagged labels keep duplicate-named columns distinguishable.
+        self._id_by_label = {
+            f"{label} ({index_to_letter(i)})": i for i, label in enumerate(source_columns)
+        }
+        id_labels = list(self._id_by_label) or [""]
+        self.id_var = ctk.StringVar(value=id_labels[0])
+        ctk.CTkOptionMenu(top, values=id_labels, variable=self.id_var, width=180).grid(
+            row=0, column=3, sticky="w"
+        )
+
+        ref_row = ctk.CTkFrame(self, fg_color="transparent")
+        ref_row.grid(row=2, column=0, sticky="ew", **_PAD)
+        ref_row.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(ref_row, text=self.tr("dupfile.reference")).grid(row=0, column=0, padx=(0, 8))
+        self.ref_var = ctk.StringVar(value="")
+        ref_entry = ctk.CTkEntry(ref_row, textvariable=self.ref_var)
+        ref_entry.grid(row=0, column=1, sticky="ew", padx=(0, 8))
+        # A path typed (or pasted) directly must work like Browse does.
+        ref_entry.bind("<Return>", lambda _e: self._apply_typed_reference())
+        ref_entry.bind("<FocusOut>", lambda _e: self._apply_typed_reference())
+        ctk.CTkButton(
+            ref_row, text=self.tr("file.browse"), width=120, command=self._browse_reference
+        ).grid(row=0, column=2, padx=(0, 8))
+        self.ref_header_var = ctk.BooleanVar(value=True)
+        self.ref_header_box = ctk.CTkCheckBox(
+            ref_row,
+            text=self.tr("header.label"),
+            variable=self.ref_header_var,
+            command=self._ref_header_changed,
+        )
+        self.ref_header_box.grid(row=0, column=3, padx=(0, 8))
+        self.sheet_var = ctk.StringVar(value="")
+        self.sheet_menu = ctk.CTkOptionMenu(
+            ref_row, values=[""], variable=self.sheet_var, width=140, command=self._sheet_changed
+        )
+        # gridded only for workbook references (see _refresh_reference_widgets)
+
+        ctk.CTkLabel(self, text=self.tr("dupfile.mapping"), anchor="w").grid(
+            row=3, column=0, sticky="nw", padx=12, pady=(6, 0)
+        )
+        self.mapping_frame = ctk.CTkScrollableFrame(self, fg_color="transparent", height=180)
+        self.mapping_frame.grid(row=4, column=0, sticky="nsew", **_PAD)
+
+        buttons = ctk.CTkFrame(self, fg_color="transparent")
+        buttons.grid(row=5, column=0, sticky="w", **_PAD)
+        self.extract_button = ctk.CTkButton(
+            buttons, text=self.tr("dupfile.extract"), command=self._start, state="disabled"
+        )
+        self.extract_button.grid(row=0, column=0, padx=(0, 8))
+        self.cancel_button = ctk.CTkButton(
+            buttons, text=self.tr("run.cancel"), command=self._cancel, state="disabled"
+        )
+        self.cancel_button.grid(row=0, column=1, padx=(0, 8))
+        self.save_button = ctk.CTkButton(
+            buttons, text=self.tr("dupfile.save"), command=self._save, state="disabled"
+        )
+        self.save_button.grid(row=0, column=2)
+
+        self.status = ctk.CTkLabel(self, text="", anchor="w", justify="left", wraplength=760)
+        self.status.grid(row=6, column=0, sticky="w", **_PAD)
+
+        if self.extractor.stats is not None:
+            self._show_done(self.extractor.stats)
+
+    # ------------------------------------------------------------- reference
+
+    def _browse_reference(self) -> None:
+        path = filedialog.askopenfilename(parent=self.app, filetypes=_FILETYPES_OPEN)
+        if not path:
+            return
+        self.ref_var.set(path)
+        self._apply_reference(path)
+
+    def _apply_typed_reference(self) -> None:
+        path = self.ref_var.get().strip()
+        if not path or (
+            self.presenter.reference_path is not None and str(self.presenter.reference_path) == path
+        ):
+            return
+        self._apply_reference(path)
+
+    def _apply_reference(self, path: str) -> None:
+        error = self.presenter.select_reference(path)
+        if error is not None:
+            _show_error(self.app, error)
+            return
+        self.ref_header_var.set(self.presenter.reference_has_header)
+        self._refresh_reference_widgets()
+        self._rebuild_mapping()
+
+    def _refresh_reference_widgets(self) -> None:
+        sheets = self.presenter.reference_sheets
+        if sheets:
+            self.sheet_menu.configure(values=sheets)
+            self.sheet_var.set(self.presenter.reference_sheet or sheets[0])
+            self.sheet_menu.grid(row=0, column=4)
+        else:
+            self.sheet_menu.grid_forget()
+
+    def _sheet_changed(self, sheet: str) -> None:
+        error = self.presenter.set_reference_sheet(sheet)
+        if error is not None:
+            _show_error(self.app, error)
+            return
+        self._rebuild_mapping()
+
+    def _ref_header_changed(self) -> None:
+        error = self.presenter.set_reference_has_header(bool(self.ref_header_var.get()))
+        if error is not None:
+            _show_error(self.app, error)
+            return
+        self._rebuild_mapping()
+
+    # ------------------------------------------------------------- mapping
+
+    def _rebuild_mapping(self) -> None:
+        for child in self.mapping_frame.winfo_children():
+            child.destroy()
+        unmapped = "-"
+        ref_labels = self.presenter.reference_column_labels()
+        choice_by_label = {unmapped: None}
+        for i, label in enumerate(ref_labels):
+            choice_by_label[f"{label} ({index_to_letter(i)})"] = i
+        labels = list(choice_by_label)
+        for grid_row, row in enumerate(self.presenter.mapping):
+            ctk.CTkLabel(self.mapping_frame, text=row.source_label, anchor="w", width=220).grid(
+                row=grid_row, column=0, sticky="w", pady=2
+            )
+            current = unmapped if row.ref_index is None else labels[row.ref_index + 1]
+            var = ctk.StringVar(value=current)
+
+            def on_pick(label: str, source_index: int = row.source_index) -> None:
+                self.presenter.set_mapping(source_index, choice_by_label[label])
+                self._update_extract_state()
+
+            ctk.CTkOptionMenu(
+                self.mapping_frame, values=labels, variable=var, command=on_pick, width=220
+            ).grid(row=grid_row, column=1, sticky="w", pady=2, padx=(12, 0))
+        self._update_extract_state()
+
+    def _update_extract_state(self) -> None:
+        ready = self.presenter.mapping_ready() and not self.extractor.running
+        self.extract_button.configure(state="normal" if ready else "disabled")
+
+    # ------------------------------------------------------------- extraction
+
+    def _selected_rule_id(self) -> str:
+        return self._rule_by_label[self.rule_var.get()]
+
+    def _start(self) -> None:
+        id_column = self._id_by_label.get(self.id_var.get(), 0)
+        self.extract_button.configure(state="disabled")
+        self.save_button.configure(state="disabled")
+        self.cancel_button.configure(state="normal")
+        self.app.set_nav_enabled(False)
+        self.status.configure(text=self.tr("run.running"))
+        try:
+            self.extractor.start(
+                **self.presenter.extract_kwargs(self._selected_rule_id(), id_column)
+            )
+        except RuntimeError as exc:
+            self.status.configure(text=self.tr("run.error", error=str(exc)))
+            return
+        self._poll()
+
+    def _cancel(self) -> None:
+        self.extractor.cancel()
+        self.cancel_button.configure(state="disabled")
+
+    def _poll(self) -> None:
+        latest_progress = None
+        for message in self.extractor.drain():
+            if message.kind == "progress":
+                latest_progress = message.payload
+            elif message.kind == "done":
+                self._show_done(message.payload)
+                self.app.set_nav_enabled(True)
+                return
+            else:
+                self.status.configure(text=self.tr("run.error", error=str(message.payload)))
+                self.cancel_button.configure(state="disabled")
+                self.app.set_nav_enabled(True)
+                self._update_extract_state()
+                _show_error(self.app, self.tr("run.error", error=str(message.payload)))
+                return
+        if latest_progress is not None:
+            phase, done, total = latest_progress
+            if phase == "reference":
+                self.status.configure(
+                    text=self.tr("dupfile.extracting.reference", rows=f"{done:,}")
+                )
+            else:
+                total_text = "?" if total is None else f"{total:,}"
+                self.status.configure(
+                    text=self.tr("dupfile.extracting.groups", done=f"{done:,}", total=total_text)
+                )
+        self._poll_job = self.after(100, self._poll)
+
+    def _show_done(self, stats) -> None:
+        self.cancel_button.configure(state="disabled")
+        self.save_button.configure(state="normal")
+        self._update_extract_state()
+        text = self.tr(
+            "dupfile.done",
+            written=f"{stats.duplicates_written:,}",
+            kept=f"{stats.kept_rows:,}",
+            groups=f"{stats.groups_processed:,}",
+            reference=f"{stats.reference_rows:,}",
+        )
+        if stats.cancelled:
+            text += " " + self.tr("dupfile.cancelled")
+        self.status.configure(text=text)
+
+    def _save(self) -> None:
+        if self.extractor.out_path is None:
+            return
+        path = filedialog.asksaveasfilename(
+            parent=self.app,
+            defaultextension=".csv",
+            initialfile="duplicates.csv",
+            filetypes=[("CSV", "*.csv")],
+        )
+        if not path:
+            return
+        import shutil
+
+        shutil.copy2(self.extractor.out_path, path)
+        messagebox.showinfo(
+            self.tr("app.title"), self.tr("report.export.done", path=path), parent=self.app
+        )
+
+    def on_show(self) -> None:
+        if self.extractor.running:
+            self.extract_button.configure(state="disabled")
+            self.cancel_button.configure(state="normal")
+            self.app.set_nav_enabled(False)
+            self.status.configure(text=self.tr("run.running"))
+            self._poll()
+
+    def on_next(self) -> bool:
+        return False  # last step
+
+    def destroy(self) -> None:
+        if self._poll_job is not None:
+            self.after_cancel(self._poll_job)
+            self._poll_job = None
         super().destroy()

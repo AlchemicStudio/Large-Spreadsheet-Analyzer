@@ -90,5 +90,18 @@
   "report.group.header": "{values} - {count} fila(s)",
   "report.group.other": "Coincidencias de las otras condiciones - {count} fila(s)",
   "report.group.more": "+ {count} fila(s) más (ver exportación)",
-  "report.groups.position": "Grupos {first}-{last} de {total}"
+  "report.groups.position": "Grupos {first}-{last} de {total}",
+  "step.dupfile.title": "Archivo de duplicados",
+  "step.dupfile.help": "Genere un CSV con las filas duplicadas a eliminar. Seleccione un archivo de referencia y asigne sus columnas a las del archivo analizado. En cada grupo de duplicados, las filas con celdas derechas idénticas conservan solo el ID más bajo; las filas únicas se conservan solo si existe una fila idéntica en el archivo de referencia.",
+  "dupfile.no_rule": "Este análisis no tiene una regla 'está duplicada en varias filas': no hay nada que extraer aquí.",
+  "dupfile.rule": "Regla",
+  "dupfile.id_column": "Columna ID",
+  "dupfile.reference": "Archivo de referencia",
+  "dupfile.mapping": "Asignación de columnas (archivo analizado -> archivo de referencia)",
+  "dupfile.extract": "Extraer duplicados",
+  "dupfile.extracting.reference": "Leyendo el archivo de referencia... {rows} fila(s)",
+  "dupfile.extracting.groups": "Procesando grupos... {done} / {total}",
+  "dupfile.done": "{written} fila(s) duplicada(s) extraída(s); {kept} fila(s) conservada(s); {groups} grupo(s) procesado(s); referencia: {reference} fila(s).",
+  "dupfile.cancelled": "Extracción cancelada: el archivo está incompleto.",
+  "dupfile.save": "Guardar archivo de duplicados..."
 }
