@@ -103,5 +103,22 @@
   "dupfile.extracting.groups": "Traitement des groupes... {done} / {total}",
   "dupfile.done": "{written} ligne(s) en double extraite(s) ; {kept} ligne(s) conservée(s) ; {groups} groupe(s) traité(s) ; référence : {reference} ligne(s).",
   "dupfile.cancelled": "Extraction annulée - le fichier est incomplet.",
-  "dupfile.save": "Enregistrer le fichier des doublons..."
+  "dupfile.save": "Enregistrer le fichier des doublons...",
+  "step.verify.title": "Vérification",
+  "step.verify.help": "Chaque ligne du fichier des doublons est recontrôlée : la condition A signifie que son contenu (colonnes clés et tout ce qui est à leur droite) apparaît plusieurs fois dans le fichier d'origine ; la condition B signifie qu'il apparaît exactement une fois et est absent du fichier de référence. Les lignes INVALIDES n'auraient pas dû être extraites.",
+  "verify.no_data": "Extrayez et enregistrez d'abord un fichier des doublons - il n'y a encore rien à vérifier.",
+  "verify.running": "Vérification des lignes en double... {done}",
+  "verify.summary": "{total} ligne(s) vérifiée(s) : {valid_a} valide(s) (condition A), {valid_b} valide(s) (condition B), {invalid} INVALIDE(S).",
+  "verify.status": "Statut",
+  "verify.valid": "VALIDE",
+  "verify.invalid": "INVALIDE",
+  "verify.condition": "Condition",
+  "verify.occurrences": "Occurrences",
+  "verify.matches": "Lignes d'origine (ligne:première cellule)",
+  "verify.filter": "Filtre (deux premières colonnes)",
+  "verify.page_size": "Par page",
+  "verify.goto": "Aller à",
+  "verify.goto.row": "Ligne",
+  "verify.goto.page": "Page",
+  "verify.go": "OK"
 }

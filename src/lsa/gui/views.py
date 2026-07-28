@@ -24,6 +24,7 @@ from lsa.gui.presenters import (
     ImportPresenter,
     ReportPresenter,
     RulesPresenter,
+    VerifyPresenter,
     empty_tokens_to_text,
     parse_empty_tokens,
 )
@@ -663,6 +664,7 @@ class RunStep(StepFrame):
         # A new scan invalidates any duplicate file extracted from the
         # previous results - never offer stale output for fresh results.
         app.extractor.discard_output()
+        app.verifier.discard_results()
         try:
             self.controller.start(**self._scan_config())
         except RuntimeError as exc:
@@ -1149,6 +1151,8 @@ class DupFileStep(StepFrame):
         self.cancel_button.configure(state="normal")
         self.app.set_nav_enabled(False)
         self.status.configure(text=self.tr("run.running"))
+        # a fresh extraction invalidates any previous verification results
+        self.app.verifier.discard_results()
         try:
             self.extractor.start(
                 **self.presenter.extract_kwargs(self._selected_rule_id(), id_column)
@@ -1223,6 +1227,8 @@ class DupFileStep(StepFrame):
         messagebox.showinfo(
             self.tr("app.title"), self.tr("report.export.done", path=path), parent=self.app
         )
+        # Successful export: move straight on to the verification step.
+        self.app.go_next()
 
     def on_show(self) -> None:
         if self.extractor.running:
@@ -1233,10 +1239,222 @@ class DupFileStep(StepFrame):
             self._poll()
 
     def on_next(self) -> bool:
-        return False  # last step
+        # The verification step needs a finished extraction.
+        return self.extractor.stats is not None and self.extractor.out_path is not None
 
     def destroy(self) -> None:
         if self._poll_job is not None:
             self.after_cancel(self._poll_job)
             self._poll_job = None
+        super().destroy()
+
+
+# ------------------------------------------------------------------ step 7: verification
+
+
+class VerifyStep(StepFrame):
+    help_key = "step.verify.help"
+
+    def __init__(self, app: App):
+        super().__init__(app)
+        self.verifier = app.verifier
+        self.presenter: VerifyPresenter | None = None
+        self._poll_job: str | None = None
+        self._filter_job: str | None = None
+        self.grid_rowconfigure(3, weight=1)
+
+        if app.extractor.stats is None or app.extractor.out_path is None:
+            ctk.CTkLabel(self, text=self.tr("verify.no_data"), anchor="w").grid(
+                row=1, column=0, sticky="w", **_PAD
+            )
+            self._available = False
+            return
+        self._available = True
+
+        self.status = ctk.CTkLabel(self, text="", anchor="w", justify="left", wraplength=900)
+        self.status.grid(row=1, column=0, sticky="w", **_PAD)
+
+        self.toolbar = ctk.CTkFrame(self, fg_color="transparent")
+        self.table = Table(self, height=10)
+        nav = ctk.CTkFrame(self, fg_color="transparent")
+        self.nav = nav
+
+        # toolbar: filter + page size + go-to
+        self.filter_var = ctk.StringVar(value="")
+        ctk.CTkLabel(self.toolbar, text=self.tr("verify.filter")).grid(row=0, column=0, padx=(0, 6))
+        ctk.CTkEntry(self.toolbar, textvariable=self.filter_var, width=200).grid(
+            row=0, column=1, padx=(0, 16)
+        )
+        self.filter_var.trace_add("write", lambda *_a: self._schedule_filter())
+        ctk.CTkLabel(self.toolbar, text=self.tr("verify.page_size")).grid(
+            row=0, column=2, padx=(0, 6)
+        )
+        self.size_var = ctk.StringVar(value="10")
+        size_box = ctk.CTkComboBox(
+            self.toolbar,
+            values=["1", "5", "10", "25", "50"],
+            variable=self.size_var,
+            width=80,
+            command=lambda _v: self._apply_page_size(),
+        )
+        size_box.grid(row=0, column=3, padx=(0, 16))
+        size_box.bind("<Return>", lambda _e: self._apply_page_size())
+        size_box.bind("<FocusOut>", lambda _e: self._apply_page_size())
+        ctk.CTkLabel(self.toolbar, text=self.tr("verify.goto")).grid(row=0, column=4, padx=(0, 6))
+        self.goto_var = ctk.StringVar(value="")
+        goto_entry = ctk.CTkEntry(self.toolbar, textvariable=self.goto_var, width=80)
+        goto_entry.grid(row=0, column=5, padx=(0, 6))
+        goto_entry.bind("<Return>", lambda _e: self._goto())
+        self.goto_mode = ctk.CTkSegmentedButton(
+            self.toolbar,
+            values=[self.tr("verify.goto.row"), self.tr("verify.goto.page")],
+        )
+        self.goto_mode.set(self.tr("verify.goto.row"))
+        self.goto_mode.grid(row=0, column=6, padx=(0, 6))
+        ctk.CTkButton(self.toolbar, text=self.tr("verify.go"), width=60, command=self._goto).grid(
+            row=0, column=7
+        )
+
+        prev_button = ctk.CTkButton(nav, text=self.tr("report.prev"), width=110, command=self._prev)
+        prev_button.grid(row=0, column=0, padx=(0, 8))
+        next_button = ctk.CTkButton(nav, text=self.tr("report.next"), width=110, command=self._next)
+        next_button.grid(row=0, column=1, padx=(0, 12))
+        self.position = ctk.CTkLabel(nav, text="")
+        self.position.grid(row=0, column=2)
+        self._nav_prev, self._nav_next = prev_button, next_button
+
+    # ------------------------------------------------------------- lifecycle
+
+    def on_show(self) -> None:
+        if not self._available:
+            return
+        if self.verifier.stats is not None:
+            self._build_viewer()
+        elif self.verifier.running:
+            self.app.set_nav_enabled(False)
+            self.status.configure(text=self.tr("verify.running", done="..."))
+            self._poll()
+        else:
+            self._start()
+
+    def _start(self) -> None:
+        from lsa.gui.presenters import verify_kwargs_from_extraction
+
+        extractor = self.app.extractor
+        assert extractor.kwargs is not None
+        self.app.set_nav_enabled(False)
+        self.status.configure(text=self.tr("verify.running", done="0"))
+        try:
+            self.verifier.start(**verify_kwargs_from_extraction(extractor.kwargs, self.app.ruleset))
+        except RuntimeError as exc:
+            self.status.configure(text=self.tr("run.error", error=str(exc)))
+            self.app.set_nav_enabled(True)
+            return
+        self._poll()
+
+    def _poll(self) -> None:
+        latest = None
+        for message in self.verifier.drain():
+            if message.kind == "progress":
+                latest = message.payload
+            elif message.kind == "done":
+                self.app.set_nav_enabled(True)
+                self._build_viewer()
+                return
+            else:
+                self.status.configure(text=self.tr("run.error", error=str(message.payload)))
+                self.app.set_nav_enabled(True)
+                _show_error(self.app, self.tr("run.error", error=str(message.payload)))
+                return
+        if latest is not None:
+            done, _total = latest
+            self.status.configure(text=self.tr("verify.running", done=f"{done:,}"))
+        self._poll_job = self.after(100, self._poll)
+
+    # ------------------------------------------------------------- viewer
+
+    def _build_viewer(self) -> None:
+        if self.presenter is not None or self.verifier.db_path is None:
+            self._refresh()
+            return
+        extractor = self.app.extractor
+        kwargs = extractor.kwargs or {}
+        self.presenter = VerifyPresenter(
+            self.verifier.db_path,
+            source_header=kwargs.get("source_header"),
+            source_width=kwargs.get("source_width", 0),
+            tr=self.tr,
+            page_size=10,
+        )
+        self.status.configure(text=self.presenter.summary_text(self.verifier.stats))
+        self.toolbar.grid(row=2, column=0, sticky="ew", **_PAD)
+        self.table.grid(row=3, column=0, sticky="nsew", **_PAD)
+        self.nav.grid(row=4, column=0, sticky="w", **_PAD)
+        self._refresh()
+
+    def _refresh(self) -> None:
+        if self.presenter is None:
+            return
+        self.table.set_data(self.presenter.table_columns(), self.presenter.page_rows())
+        self.position.configure(text=self.presenter.position_text())
+        self._nav_prev.configure(state="normal" if self.presenter.can_prev else "disabled")
+        self._nav_next.configure(state="normal" if self.presenter.can_next else "disabled")
+
+    def _schedule_filter(self) -> None:
+        if self._filter_job is not None:
+            self.after_cancel(self._filter_job)
+        self._filter_job = self.after(300, self._apply_filter)
+
+    def _apply_filter(self) -> None:
+        self._filter_job = None
+        if self.presenter is None:
+            return
+        self.presenter.set_filter(self.filter_var.get().strip())
+        self._refresh()
+
+    def _apply_page_size(self) -> None:
+        if self.presenter is None:
+            return
+        try:
+            size = int(self.size_var.get().strip())
+        except ValueError:
+            return
+        self.presenter.set_page_size(size)
+        self._refresh()
+
+    def _goto(self) -> None:
+        if self.presenter is None:
+            return
+        try:
+            value = int(self.goto_var.get().strip())
+        except ValueError:
+            return
+        if self.goto_mode.get() == self.tr("verify.goto.page"):
+            self.presenter.goto_page(value)
+        else:
+            self.presenter.goto_row(value)
+        self._refresh()
+
+    def _prev(self) -> None:
+        if self.presenter is not None:
+            self.presenter.prev_page()
+            self._refresh()
+
+    def _next(self) -> None:
+        if self.presenter is not None:
+            self.presenter.next_page()
+            self._refresh()
+
+    def on_next(self) -> bool:
+        return False  # last step
+
+    def destroy(self) -> None:
+        for job_attr in ("_poll_job", "_filter_job"):
+            job = getattr(self, job_attr, None)
+            if job is not None:
+                with contextlib.suppress(Exception):
+                    self.after_cancel(job)
+                setattr(self, job_attr, None)
+        if self.presenter is not None:
+            self.presenter.close()
         super().destroy()

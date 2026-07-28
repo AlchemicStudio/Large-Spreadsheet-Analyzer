@@ -40,6 +40,14 @@ Nothing ever leaves your machine.
   unique right-hand cells are kept only when an identical row (over the
   mapped columns) exists in the reference file. The extraction streams in
   its own process and the result is saved wherever you choose.
+- **Verification viewer** (step 7, entered automatically after saving):
+  every extracted row is re-checked against the original file and the
+  reference — condition A (its content appears several times in the
+  original, with the matching row indices and first cells listed) or
+  condition B (appears exactly once and is missing from the reference);
+  anything else is flagged INVALID. The viewer paginates (selectable or
+  custom page size), jumps to a row or page, and live-filters on the
+  first two columns.
 - **CLI**: the same engine headless, for pipelines
   (exit code `0` = no matches, `1` = matches found, `2` = error).
 - **Report**: per-rule match counts with lazily loaded sample rows

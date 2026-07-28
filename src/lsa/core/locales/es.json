@@ -103,5 +103,22 @@
   "dupfile.extracting.groups": "Procesando grupos... {done} / {total}",
   "dupfile.done": "{written} fila(s) duplicada(s) extraída(s); {kept} fila(s) conservada(s); {groups} grupo(s) procesado(s); referencia: {reference} fila(s).",
   "dupfile.cancelled": "Extracción cancelada: el archivo está incompleto.",
-  "dupfile.save": "Guardar archivo de duplicados..."
+  "dupfile.save": "Guardar archivo de duplicados...",
+  "step.verify.title": "Verificación",
+  "step.verify.help": "Cada fila del archivo de duplicados se comprueba de nuevo: la condición A significa que su contenido (columnas clave más todo lo que está a su derecha) aparece varias veces en el archivo original; la condición B significa que aparece exactamente una vez y falta en el archivo de referencia. Las filas NO VÁLIDAS no deberían haberse extraído.",
+  "verify.no_data": "Primero extraiga y guarde un archivo de duplicados: aún no hay nada que verificar.",
+  "verify.running": "Verificando filas duplicadas... {done}",
+  "verify.summary": "{total} fila(s) verificada(s): {valid_a} válida(s) (condición A), {valid_b} válida(s) (condición B), {invalid} NO VÁLIDA(S).",
+  "verify.status": "Estado",
+  "verify.valid": "VÁLIDA",
+  "verify.invalid": "NO VÁLIDA",
+  "verify.condition": "Condición",
+  "verify.occurrences": "Apariciones",
+  "verify.matches": "Filas originales (fila:primera celda)",
+  "verify.filter": "Filtro (dos primeras columnas)",
+  "verify.page_size": "Por página",
+  "verify.goto": "Ir a",
+  "verify.goto.row": "Fila",
+  "verify.goto.page": "Página",
+  "verify.go": "Ir"
 }

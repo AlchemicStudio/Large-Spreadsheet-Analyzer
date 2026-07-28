@@ -26,6 +26,7 @@ from lsa.core.rules import RuleSet
 from lsa.core.scan import run_scan
 from lsa.core.store import ResultStore, make_temp_store_path
 from lsa.core.streams import open_stream
+from lsa.core.verify import verify_duplicates
 
 # spawn (never fork): a forked child would inherit the parent's Tcl/Tk state,
 # re-creating exactly the unsafety this design removes; spawn is also the
@@ -79,6 +80,21 @@ def _extract_process(message_queue, cancel_event, kwargs: dict) -> None:
         stats = extract_duplicates(
             progress_callback=lambda phase, done, total: message_queue.put(
                 ScanMessage("progress", (phase, done, total))
+            ),
+            cancel=cancel_event,
+            **kwargs,
+        )
+        message_queue.put(ScanMessage("done", stats))
+    except BaseException as exc:
+        message_queue.put(ScanMessage("error", str(exc) or repr(exc)))
+
+
+def _verify_process(message_queue, cancel_event, kwargs: dict) -> None:
+    """Entry point of the duplicate-verification subprocess."""
+    try:
+        stats = verify_duplicates(
+            progress_callback=lambda done, total: message_queue.put(
+                ScanMessage("progress", (done, total))
             ),
             cancel=cancel_event,
             **kwargs,
@@ -304,18 +320,22 @@ class ExtractController(ProcessController):
         super().__init__()
         self.stats = None
         self.out_path: Path | None = None
-        self._ref_db_path: Path | None = None
+        self.ref_db_path: Path | None = None
+        self.kwargs: dict[str, Any] | None = None
 
     def start(self, **extract_kwargs: Any) -> None:
         """Launch the extraction subprocess; kwargs go to extract_duplicates."""
         if self.running:
             raise RuntimeError(f"a {self.job_name} is already running")
         self.discard_output()
+        extract_kwargs = dict(extract_kwargs)  # never mutate the caller's dict
         self.out_path = make_temp_store_path(prefix="lsa-duplicates-", suffix=".csv")
-        # Parent-owned so it can be deleted even if the child is killed.
-        self._ref_db_path = make_temp_store_path(prefix="lsa-refkeys-")
+        # Parent-owned so they can be deleted even if the child is killed;
+        # the ref-key db survives the run for the verification step.
+        self.ref_db_path = make_temp_store_path(prefix="lsa-refkeys-")
         extract_kwargs["out_path"] = str(self.out_path)
-        extract_kwargs["ref_db_path"] = str(self._ref_db_path)
+        extract_kwargs["ref_db_path"] = str(self.ref_db_path)
+        self.kwargs = extract_kwargs
         self._start_process(_extract_process, (extract_kwargs,))
 
     def _handle_done(self, payload: object) -> object:
@@ -327,10 +347,46 @@ class ExtractController(ProcessController):
         if self.out_path is not None:
             self.out_path.unlink(missing_ok=True)
             self.out_path = None
-        if self._ref_db_path is not None:
-            self._ref_db_path.unlink(missing_ok=True)
-            self._ref_db_path = None
+        if self.ref_db_path is not None:
+            self.ref_db_path.unlink(missing_ok=True)
+            self.ref_db_path = None
         self.stats = None
+        self.kwargs = None
 
     def _cleanup(self) -> None:
         self.discard_output()
+
+
+class VerifyController(ProcessController):
+    """Runs the duplicate-file verification and owns its results database."""
+
+    job_name = "verification"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.stats = None
+        self.db_path: Path | None = None
+
+    def start(self, **verify_kwargs: Any) -> None:
+        """Launch the verification subprocess; kwargs go to verify_duplicates."""
+        if self.running:
+            raise RuntimeError(f"a {self.job_name} is already running")
+        self.discard_results()
+        verify_kwargs = dict(verify_kwargs)
+        self.db_path = make_temp_store_path(prefix="lsa-verify-")
+        verify_kwargs["out_db_path"] = str(self.db_path)
+        self._start_process(_verify_process, (verify_kwargs,))
+
+    def _handle_done(self, payload: object) -> object:
+        self.stats = payload
+        return payload
+
+    def discard_results(self) -> None:
+        """Delete the previous verification's results database."""
+        if self.db_path is not None:
+            self.db_path.unlink(missing_ok=True)
+            self.db_path = None
+        self.stats = None
+
+    def _cleanup(self) -> None:
+        self.discard_results()

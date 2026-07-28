@@ -275,6 +275,23 @@ def test_export_includes_group_column(make_csv, tmp_path) -> None:
     assert rows[1][3] == "92837"  # full original row follows the group columns
 
 
+def test_right_key_ignores_trailing_empty_cells(make_csv, tmp_path) -> None:
+    # A missing trailing cell and an empty one are the same content: rows
+    # ragged only in trailing empties must land in the same sub-group.
+    path = make_csv("id,key,v1,v2\n1,A,x\n2,A,x,\n3,A,y,\n")
+    with (
+        CsvRowStream(path, CsvOptions()) as stream,
+        ResultStore(tmp_path / "r.sqlite3") as store,
+    ):
+        _scan(stream, _dup_rule(ColumnRef("header", "key")), store=store)
+        matches = store.get_page("dup", 0, 10)
+    assert [(m.sub_key, m.row_number) for m in matches] == [
+        ("x", 2),
+        ("x", 3),
+        (None, 4),  # y is unique
+    ]
+
+
 def test_group_level_queries_and_pager(make_csv, tmp_path) -> None:
     from lsa.core.report import GroupPager
 

@@ -103,5 +103,22 @@
   "dupfile.extracting.groups": "Processing groups... {done} / {total}",
   "dupfile.done": "{written} duplicate row(s) extracted; {kept} row(s) kept; {groups} group(s) processed; reference: {reference} row(s).",
   "dupfile.cancelled": "Extraction cancelled - the file is incomplete.",
-  "dupfile.save": "Save duplicate file..."
+  "dupfile.save": "Save duplicate file...",
+  "step.verify.title": "Verification",
+  "step.verify.help": "Every row of the generated duplicate file is checked again: condition A means its content (key columns plus everything to their right) appears several times in the original file; condition B means it appears exactly once and is missing from the reference file. INVALID rows should not have been extracted.",
+  "verify.no_data": "Extract and save a duplicate file first - there is nothing to verify yet.",
+  "verify.running": "Verifying duplicate rows... {done}",
+  "verify.summary": "{total} row(s) verified: {valid_a} valid (condition A), {valid_b} valid (condition B), {invalid} INVALID.",
+  "verify.status": "Status",
+  "verify.valid": "VALID",
+  "verify.invalid": "INVALID",
+  "verify.condition": "Condition",
+  "verify.occurrences": "Occurrences",
+  "verify.matches": "Original rows (row:first cell)",
+  "verify.filter": "Filter (first two columns)",
+  "verify.page_size": "Per page",
+  "verify.goto": "Go to",
+  "verify.goto.row": "Row",
+  "verify.goto.page": "Page",
+  "verify.go": "Go"
 }

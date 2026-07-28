@@ -565,7 +565,7 @@ def test_dupfile_presenter_maps_by_name_and_extracts(make_csv) -> None:
         out_text = extractor.out_path.read_text(encoding="utf-8")
         assert "4,A,x" in out_text
         out_path = extractor.out_path
-        ref_db_path = extractor._ref_db_path
+        ref_db_path = extractor.ref_db_path
         extractor.discard_output()
         assert not out_path.exists()
         assert ref_db_path is not None and not ref_db_path.exists()

@@ -75,6 +75,7 @@ _STALE_PATTERNS = (
     "lsa-results-*.sqlite3",
     "lsa-refkeys-*.sqlite3",
     "lsa-duplicates-*.csv",
+    "lsa-verify-*.sqlite3",
 )
 _STALE_AFTER_SECONDS = 2 * 24 * 3600
 _stale_cleanup_done = False
@@ -346,6 +347,22 @@ class ResultStore:
             (rule_id, limit, offset),
         ).fetchall()
         return [self._to_match(r) for r in rows]
+
+    def find_dup_occurrences(self, cond_id: str, key: str, right_key: str) -> list[StoredMatch]:
+        """All original-file rows whose (key, right-hand) pair matches exactly.
+
+        Fully covered by idx_dup_entries; used by the verification step to
+        count a Row Key's occurrences in the original file.
+        """
+        rows = self._conn.execute(
+            "SELECT row_number, byte_offset, cells FROM dup_entries "
+            "WHERE cond_id = ? AND key = ? AND right_key = ? ORDER BY row_number",
+            (cond_id, key, right_key),
+        ).fetchall()
+        return [
+            StoredMatch("", n, off, None if cells is None else json.loads(cells))
+            for n, off, cells in rows
+        ]
 
     def iter_grouped_matches(self, rule_id: str) -> Iterator[StoredMatch]:
         """Stream every grouped match of one rule in block order.

@@ -234,9 +234,17 @@ class CsvRowStream:
             yield Row(number, cells, offset)
             number += 1
 
-    def rows(self) -> Iterator[Row]:
-        """Yield data rows; the trailing run of blank lines is dropped."""
-        return suppress_trailing_empty(self._iter_raw())
+    def rows(self, *, keep_trailing_empty: bool = False) -> Iterator[Row]:
+        """Yield data rows; the trailing run of blank lines is dropped.
+
+        ``keep_trailing_empty`` disables that suppression — used when the
+        file is machine-written and every record is meaningful (e.g. the
+        verification step auditing a generated duplicate file).
+        """
+        iterator = self._iter_raw()
+        if keep_trailing_empty:
+            return iterator
+        return suppress_trailing_empty(iterator)
 
     def bytes_read(self) -> int:
         if self._lines is not None:

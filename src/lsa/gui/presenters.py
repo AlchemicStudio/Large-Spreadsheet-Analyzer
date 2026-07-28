@@ -579,6 +579,153 @@ class DupFilePresenter:
         }
 
 
+def verify_kwargs_from_extraction(extract_kwargs: dict, ruleset: RuleSet) -> dict:
+    """Picklable arguments for the verification subprocess, derived from the
+    extraction's arguments so both steps see exactly the same inputs."""
+    k = extract_kwargs
+    return {
+        "scan_db_path": k["scan_db_path"],
+        "ruleset": ruleset,
+        "rule_id": k["rule_id"],
+        "source_path": k["source_path"],
+        "source_csv_options": k["source_csv_options"],
+        "source_header": k["source_header"],
+        "source_width": k["source_width"],
+        "dup_file_path": k["out_path"],
+        "dup_separator": k["out_separator"],
+        "mapping": k["mapping"],
+        "settings": k["settings"],
+        "ref_db_path": k["ref_db_path"],
+    }
+
+
+class VerifyPresenter:
+    """Step 7: paginated, searchable viewer over the verification results."""
+
+    def __init__(
+        self,
+        db_path: Path,
+        *,
+        source_header: list[str] | None,
+        source_width: int,
+        tr: Translator,
+        page_size: int = 10,
+    ):
+        from lsa.core.verify import VerificationStore
+
+        self._store = VerificationStore(db_path, read_only=True)
+        self._header = source_header
+        self._width = source_width
+        self._tr = tr
+        self.page_size = max(1, page_size)
+        self.offset = 0
+        self.filter_text = ""
+        self._total: int | None = None
+
+    def close(self) -> None:
+        self._store.close()
+
+    # ------------------------------------------------------------- queries
+
+    def total(self) -> int:
+        if self._total is None:
+            self._total = self._store.count(self.filter_text)
+        return self._total
+
+    def set_filter(self, text: str) -> None:
+        """Live search over the first two cells of each row."""
+        if text == self.filter_text:
+            return
+        self.filter_text = text
+        self.offset = 0
+        self._total = None
+
+    def set_page_size(self, size: int) -> None:
+        self.page_size = max(1, size)
+        self.offset = (self.offset // self.page_size) * self.page_size
+
+    def goto_row(self, seq: int) -> None:
+        """Jump to the page containing duplicate-file row ``seq``."""
+        position = self._store.position_of(seq, self.filter_text)
+        position = max(0, min(position, max(0, self.total() - 1)))
+        self.offset = (position // self.page_size) * self.page_size
+
+    def goto_page(self, page: int) -> None:
+        last_page = max(0, (self.total() - 1) // self.page_size)
+        target = max(0, min(page - 1, last_page))
+        self.offset = target * self.page_size
+
+    @property
+    def can_prev(self) -> bool:
+        return self.offset > 0
+
+    @property
+    def can_next(self) -> bool:
+        return self.offset + self.page_size < self.total()
+
+    def next_page(self) -> None:
+        if self.can_next:
+            self.offset += self.page_size
+
+    def prev_page(self) -> None:
+        self.offset = max(0, self.offset - self.page_size)
+
+    def position_text(self) -> str:
+        total = self.total()
+        if total == 0:
+            return self._tr("report.no_matches")
+        first = self.offset + 1
+        last = min(self.offset + self.page_size, total)
+        return self._tr("report.position", first=first, last=last, total=total)
+
+    # ------------------------------------------------------------- display
+
+    def table_columns(self) -> list[str]:
+        data_columns = (
+            list(self._header)
+            if self._header is not None
+            else [index_to_letter(i) for i in range(self._width)]
+        )
+        return [
+            "#",
+            self._tr("verify.status"),
+            self._tr("verify.condition"),
+            self._tr("verify.occurrences"),
+            self._tr("verify.matches"),
+            *data_columns,
+        ]
+
+    def page_rows(self) -> list[list[str]]:
+        rows = []
+        for entry in self._store.page(self.offset, self.page_size, self.filter_text):
+            status = self._tr("verify.valid") if entry.valid else self._tr("verify.invalid")
+            cells = list(entry.cells[: self._width])
+            cells += [""] * (self._width - len(cells))
+            rows.append(
+                [
+                    str(entry.seq),
+                    status,
+                    entry.condition or "-",
+                    str(entry.occurrences),
+                    entry.matches_display,
+                    *cells,
+                ]
+            )
+        return rows
+
+    def summary_text(self, stats) -> str:
+        text = self._tr(
+            "verify.summary",
+            total=f"{stats.total:,}",
+            valid_a=f"{stats.valid_a:,}",
+            valid_b=f"{stats.valid_b:,}",
+            invalid=f"{stats.invalid:,}",
+        )
+        if stats.malformed_rows:
+            text += " " + self._tr("run.malformed", count=f"{stats.malformed_rows:,}")
+        return text
+
+
 class ReportPresenter:
     """Step 5: per-rule sections with pagination and exports."""
 

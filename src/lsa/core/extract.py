@@ -175,6 +175,7 @@ def extract_duplicates(
     transform = _value_transform(settings)
     source_indexes = mapping.source_indexes()
 
+    owns_ref_db = ref_db_path is None
     if ref_db_path is None:
         ref_db_path = make_temp_store_path(prefix="lsa-refkeys-")
     ref_db_path = Path(ref_db_path)
@@ -274,7 +275,10 @@ def extract_duplicates(
         source.close()
         store.close()
         ref_db.close()
-        ref_db_path.unlink(missing_ok=True)
+        if owns_ref_db:
+            # A caller-provided ref db is kept: the verification step reuses
+            # the exact key set the extraction ran against.
+            ref_db_path.unlink(missing_ok=True)
 
     return ExtractStats(
         reference_rows=reference_rows,

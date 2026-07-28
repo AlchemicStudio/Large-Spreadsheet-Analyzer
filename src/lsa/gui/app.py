@@ -15,9 +15,10 @@ from lsa.gui.views import (
     RulesStep,
     RunStep,
     StepFrame,
+    VerifyStep,
 )
 from lsa.gui.widgets import style_treeviews
-from lsa.gui.worker import ExtractController, ScanController
+from lsa.gui.worker import ExtractController, ScanController, VerifyController
 
 _LANGUAGE_NAMES = {
     "en": "English",
@@ -34,6 +35,7 @@ _STEPS: list[tuple[str, type[StepFrame]]] = [
     ("step.run.title", RunStep),
     ("step.report.title", ReportStep),
     ("step.dupfile.title", DupFileStep),
+    ("step.verify.title", VerifyStep),
 ]
 
 
@@ -46,6 +48,7 @@ class App(ctk.CTk):
         self.wizard = WizardState()
         self.controller = ScanController()
         self.extractor = ExtractController()
+        self.verifier = VerifyController()
         self.ruleset: RuleSet = RuleSet(rules=())
         self.step_index = 0
         self.step_frame: StepFrame | None = None
@@ -154,6 +157,7 @@ class App(ctk.CTk):
     # ------------------------------------------------------------- lifecycle
 
     def _on_close(self) -> None:
+        self.verifier.shutdown()
         self.extractor.shutdown()
         self.controller.shutdown()
         self.destroy()

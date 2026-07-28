@@ -137,6 +137,11 @@ def compile_rules(ruleset: RuleSet, header: list[str] | None, width: int) -> Com
                 if trim:
                     value = value.strip()
                 parts.append(value if fold is None else fold(value))
+            # Padding-insensitive: a missing trailing cell and an empty one
+            # are the same content (a ragged source row and its padded copy
+            # in the duplicate file must produce identical keys).
+            while parts and parts[-1] == "":
+                parts.pop()
             return _KEY_SEPARATOR.join(parts)
 
         return DuplicateCondition(f"{rule_id}{_KEY_SEPARATOR}{index}", key_of, right_key_of)

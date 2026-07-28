@@ -103,5 +103,22 @@
   "dupfile.extracting.groups": "Gruppen werden verarbeitet... {done} / {total}",
   "dupfile.done": "{written} Duplikatzeile(n) extrahiert; {kept} Zeile(n) behalten; {groups} Gruppe(n) verarbeitet; Referenz: {reference} Zeile(n).",
   "dupfile.cancelled": "Extraktion abgebrochen - die Datei ist unvollständig.",
-  "dupfile.save": "Duplikatdatei speichern..."
+  "dupfile.save": "Duplikatdatei speichern...",
+  "step.verify.title": "Überprüfung",
+  "step.verify.help": "Jede Zeile der erzeugten Duplikatdatei wird erneut geprüft: Bedingung A bedeutet, ihr Inhalt (Schlüsselspalten plus alles rechts davon) kommt mehrfach in der Originaldatei vor; Bedingung B bedeutet, er kommt genau einmal vor und fehlt in der Referenzdatei. UNGÜLTIGE Zeilen hätten nicht extrahiert werden dürfen.",
+  "verify.no_data": "Extrahieren und speichern Sie zuerst eine Duplikatdatei - es gibt noch nichts zu überprüfen.",
+  "verify.running": "Duplikatzeilen werden überprüft... {done}",
+  "verify.summary": "{total} Zeile(n) überprüft: {valid_a} gültig (Bedingung A), {valid_b} gültig (Bedingung B), {invalid} UNGÜLTIG.",
+  "verify.status": "Status",
+  "verify.valid": "GÜLTIG",
+  "verify.invalid": "UNGÜLTIG",
+  "verify.condition": "Bedingung",
+  "verify.occurrences": "Vorkommen",
+  "verify.matches": "Originalzeilen (Zeile:erste Zelle)",
+  "verify.filter": "Filter (erste zwei Spalten)",
+  "verify.page_size": "Pro Seite",
+  "verify.goto": "Gehe zu",
+  "verify.goto.row": "Zeile",
+  "verify.goto.page": "Seite",
+  "verify.go": "Los"
 }

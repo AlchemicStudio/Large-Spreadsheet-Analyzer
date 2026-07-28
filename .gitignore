@@ -12,3 +12,4 @@ build/
 htmlcov/
 uv.lock
 tests/_fixtures_big/
+tmp/
